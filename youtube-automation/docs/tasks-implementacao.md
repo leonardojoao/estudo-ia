@@ -1,7 +1,7 @@
 # Tasks de Implementação — YouTube Automation
 
 > Documento gerado pelo Arquiteto. Cobre 100% dos arquivos da estrutura definida.
-> **61 tasks** organizadas em 6 fases. Cada task = 0.5 a 1 dia de trabalho.
+> **65 tasks** organizadas em 6 fases. Cada task = 0.5 a 1 dia de trabalho.
 > **NÃO é para implementar de uma vez** — siga a ordem das fases e dependências.
 
 ---
@@ -99,8 +99,13 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     environment: str = "production"
     max_workers: int = 2
+    # Pipeline
+    max_concurrent_jobs: int = 2       # limite de jobs simultâneos no runner
+    debug_mode: bool = False            # habilita endpoints de debug em produção
+    output_retention_days: int = 7     # dias para manter vídeos finais em /output
+    audio_preview_ttl_hours: int = 1   # TTL de arquivos de preview de áudio
 
-    model_config = SettingsConfig(env_file=".env", case_sensitive=False)
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
 ```
 
 Função singleton `get_settings()` com `@lru_cache`.
@@ -284,6 +289,7 @@ Método de classe `get(db, key, default=None)` e `set(db, key, value)`.
 #### Pontos de atenção
 - SQLite não suporta `ALTER TABLE` com FK — downgrade deve fazer `DROP TABLE` completo
 - Configurar `render_as_batch=True` no env.py para suporte a migrações futuras no SQLite
+- **`alembic/env.py` deve importar explicitamente todos os models** para que `alembic revision --autogenerate` detecte as tabelas: `from app.models.account import YouTubeAccount; from app.models.job import ProcessingJob; from app.models.job_step import JobStep; from app.models.settings import SystemSetting`
 
 ---
 
@@ -365,6 +371,8 @@ app.include_router(accounts_router, prefix="/api")
 app.include_router(jobs_router, prefix="/api")
 app.include_router(ollama_router, prefix="/api")
 app.include_router(sse_router, prefix="/api")
+app.include_router(text_generation_router, prefix="/api")  # TASK-059
+app.include_router(audio_router, prefix="/api")            # TASK-060
 
 @app.get("/health")
 async def health(): return {"status": "ok", "version": "1.0.0"}
@@ -433,18 +441,54 @@ POST /api/settings/validate-videos-folder → valida pasta e conta vídeos
     "vite": "^5.2", "@vitejs/plugin-vue": "^5.0",
     "typescript": "^5.4", "vue-tsc": "^2.0",
     "tailwindcss": "^3.4", "vitest": "^1.6",
-    "@vue/test-utils": "^2.4", "eslint": "^9", "prettier": "^3.2"
+    "@vue/test-utils": "^2.4", "eslint": "^9", "prettier": "^3.2",
+    "@vitejs/plugin-vue-jsx": "^4.0"
   }
 }
 ```
 
 `vite.config.ts`: proxy `/api` → `http://localhost:8000` em dev.
 
+**Arquivos de configuração obrigatórios** (sem eles `npm run lint` e `npm run test` falham):
+
+```javascript
+// eslint.config.js
+import pluginVue from 'eslint-plugin-vue'
+import { defineConfig } from 'eslint/config'
+export default defineConfig([
+  pluginVue.configs['flat/recommended'],
+  { rules: { 'vue/multi-word-component-names': 'off' } }
+])
+```
+
+```json
+// .prettierrc
+{ "semi": false, "singleQuote": true, "tabWidth": 2, "trailingComma": "es5" }
+```
+
+```typescript
+// vitest.config.ts
+import { defineConfig } from 'vitest/config'
+import vue from '@vitejs/plugin-vue'
+export default defineConfig({
+  plugins: [vue()],
+  test: { environment: 'jsdom', coverage: { reporter: ['text', 'html'] } }
+})
+```
+
+```env
+# frontend/.env.example
+VITE_API_URL=http://localhost:8000
+```
+
 #### Critérios de conclusão
 - [ ] `npm install` executa sem erros
 - [ ] `npm run dev` inicia Vite na porta 5173
 - [ ] `npm run build` gera `dist/` sem erros de TypeScript
 - [ ] Proxy `/api` redireciona para backend em `localhost:8000`
+- [ ] `npm run lint` executa sem erro (requer `eslint.config.js`)
+- [ ] `npm run test:run` executa sem erro (requer `vitest.config.ts`)
+- [ ] `frontend/.env.example` criado com `VITE_API_URL`
 
 ---
 
@@ -519,6 +563,8 @@ export const settingsApi = { get, update, validateFolder }
 export const accountsApi = { list, getOAuthUrl, delete, test }
 export const jobsApi = { list, create, get, delete, run, runStep, getStepOutput }
 export const ollamaApi = { getModels, getVoices }
+export const textGenerationApi = { generate, generateBatch }   // TASK-059
+export const audioApi = { generate, getPreviewUrl, getVoices } // TASK-060
 ```
 
 #### Critérios de conclusão
@@ -1235,6 +1281,7 @@ async def upload_video(
 - [ ] `YouTubeAPIError` lançado com code e message da API em caso de falha
 - [ ] Token renovado automaticamente se expirado antes do upload
 - [ ] **`quotaExceeded` tratado especificamente:** retornar mensagem orientada ao usuário com horário de renovação da quota (meia-noite PT) e sugerir reagendamento automático para 01h00 PT do dia seguinte
+- [ ] **`services/youtube/schemas.py` criado:** `UploadInput(video_path, title, description, tags, category_id, privacy, publish_at)`, `UploadOutput(video_id, youtube_url)`, `ScheduleUploadInput`
 
 ---
 
@@ -1303,6 +1350,9 @@ async def cancel_scheduled_job(scheduler_job_id: str) -> None: ...
 - [ ] Jobs agendados persistidos no SQLite (sobrevivem a restart do servidor)
 - [ ] `schedule_upload_job` usa fuso UTC internamente
 - [ ] Job cancelado quando processamento é deletado
+- [ ] **Job de limpeza de audio preview:** job periódico a cada 1h que deleta arquivos em `/tmp/audio_preview/` com mais de `settings.audio_preview_ttl_hours` horas
+- [ ] **Job de limpeza de oauth_states:** job periódico a cada 30min que deleta registros com `expires_at < now()` da tabela `oauth_states`
+- [ ] **Job de retenção de outputs:** job diário que deleta arquivos em `/app/output/` com mais de `settings.output_retention_days` dias (apenas se já publicados no YouTube)
 
 ---
 
@@ -1882,7 +1932,8 @@ Formulário com:
 - Preview ilustrativo da dimensão escolhida
 
 **UploadForm.vue:**
-- Seletor de conta (dropdown das contas ativas)
+- **Multi-select de contas** (checkboxes, não dropdown) — `job_accounts` é M2M, permite upload simultâneo para múltiplos canais
+- Pelo menos uma conta deve estar selecionada para avançar
 - Campo de título (pré-preenchido se gerado por IA, editável)
 - Textarea de descrição (pré-preenchida se gerada por IA, editável)
 - Toggle "Publicar agora / Agendar"
@@ -2029,9 +2080,12 @@ View acessível em `/jobs/{id}` com:
 | TASK-056 | US-039 | `pipeline/steps.py` + `state.py` + `runner.py` | 5 |
 | TASK-057 | US-039 | `VideoForm.vue` (atualização) | 6 |
 | TASK-058 | US-029 | `services/youtube/uploader.py` (tags) | 4 |
-| TASK-059 | — | `api/routes/text_generation.py` (preview wizard) | 2 |
-| TASK-060 | — | `api/routes/audio.py` (preview wizard) | 2 |
+| TASK-059 | US-013 | `api/routes/text_generation.py` (preview wizard) | 2 |
+| TASK-060 | US-017 | `api/routes/audio.py` (preview wizard) | 2 |
 | TASK-061 | US-007 | `app/db/migrations/002_oauth_states.py` | 4 |
+| TASK-062 | US-001 | `src/types/index.ts` | 1 |
+| TASK-063 | US-001 | `app/core/utils.py` | 1 |
+| TASK-064 | US-031 | `stores/__tests__/*.test.ts` | 6 |
 
 ---
 
@@ -2039,13 +2093,13 @@ View acessível em `/jobs/{id}` com:
 
 | Fase | Tasks | Foco |
 |---|---|---|
-| 1 — Fundação | TASK-001 a TASK-016 | Backend base + DB + Frontend scaffold |
+| 1 — Fundação | TASK-001 a TASK-016 + TASK-062 + TASK-063 | Backend base + DB + Frontend scaffold + tipos TS + utils |
 | 2 — IA e Áudio | TASK-017 a TASK-021 + TASK-059 + TASK-060 | Ollama + edge-tts + endpoints de preview |
 | 3 — Vídeo | TASK-022 a TASK-026 + TASK-055 | FFmpeg + algoritmo anti-plágio + efeito vintage |
 | 4 — YouTube | TASK-027 a TASK-032 + TASK-058 + TASK-061 | OAuth + upload + agendamento + tags + CSRF state |
 | 5 — Orquestração | TASK-033 a TASK-039 + TASK-056 | Pipeline runner + SSE + testes + etapa vintage |
-| 6 — Interface | TASK-040 a TASK-054 + TASK-057 | Todas as views e componentes Vue + toggle vintage |
-| **Total** | **61 tasks** | **Sistema completo** |
+| 6 — Interface | TASK-040 a TASK-054 + TASK-057 + TASK-064 | Views + componentes + toggle vintage + testes frontend |
+| **Total** | **65 tasks** | **Sistema completo** |
 
 ---
 
@@ -2193,3 +2247,227 @@ Funções em `services/youtube/auth.py`:
 - [ ] `validate_oauth_state` retorna `False` se não encontrado ou expirado (não levanta exceção)
 - [ ] State deletado após validação bem-sucedida (uso único)
 - [ ] Cleanup periódico de states expirados via APScheduler
+
+---
+
+### TASK-062 — Criar src/types/index.ts (tipos TypeScript compartilhados)
+
+**Módulo:** frontend
+**Arquivo(s):** `frontend/src/types/index.ts`
+**US:** US-001
+**Depende de:** TASK-009 (schemas do backend como referência)
+**Produz para:** todas as stores e componentes Vue
+
+#### O que criar
+Arquivo centralizado com todas as interfaces TypeScript usadas no frontend. Deve espelhar os Pydantic schemas do backend:
+
+```typescript
+// Contas
+export interface Account {
+  id: number
+  name: string
+  channel_id: string
+  email: string | null
+  avatar_url: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+// Jobs
+export type JobStatus = 'pending' | 'running' | 'completed' | 'error' | 'cancelled' | 'scheduled'
+export type StepStatus = 'pending' | 'running' | 'completed' | 'error' | 'skipped'
+
+export interface JobStep {
+  id: number
+  job_id: number
+  step_name: string
+  status: StepStatus
+  input: Record<string, unknown> | null
+  output: Record<string, unknown> | null
+  log: string | null
+  duration_ms: number | null
+  started_at: string | null
+  completed_at: string | null
+}
+
+export interface Job {
+  id: number
+  name: string
+  status: JobStatus
+  current_step: string | null
+  progress: number
+  output_video: string | null
+  youtube_urls: Record<string, string> | null
+  error_message: string | null
+  scheduled_at: string | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string
+  steps?: JobStep[]
+  accounts?: Account[]
+}
+
+// Configuração do Job
+export type VintageIntensity = 'light' | 'medium' | 'strong'
+
+export interface JobConfig {
+  name: string
+  account_ids: number[]
+  // Texto
+  text_mode: 'ai' | 'manual'
+  text_prompt?: string
+  text_model?: string
+  narrator_text?: string
+  text_count: number
+  // Áudio
+  tts_voice: string
+  target_duration_seconds: number
+  // Vídeo
+  dimension: '16:9' | '9:16'
+  crop_for_vertical: boolean
+  vintage_effect_enabled: boolean
+  vintage_intensity: VintageIntensity
+  // Metadados
+  title_prompt?: string
+  description_prompt?: string
+  video_title?: string
+  video_description?: string
+  video_tags: string[]
+  // Upload
+  privacy: 'public' | 'private' | 'unlisted'
+  publish_at?: string | null
+}
+
+// SSE
+export interface SSEJobEvent {
+  job_id: number
+  status: JobStatus
+  current_step: string | null
+  progress: number
+  step_log: string | null
+}
+
+// Configurações
+export interface SystemSettings {
+  ollama_url: string
+  ollama_model: string
+  videos_folder: string
+  tts_voice: string
+  default_dimension: string
+  clip_min_duration: string
+  clip_max_duration: string
+}
+
+// Ollama
+export interface OllamaModel {
+  name: string
+  size: number
+  modified_at: string
+}
+
+export interface TTSVoice {
+  name: string
+  short_name: string
+  gender: string
+  locale: string
+}
+```
+
+#### Critérios de conclusão
+- [ ] Todos os tipos usados em stores (`jobs.ts`, `accounts.ts`, `settings.ts`) importados deste arquivo
+- [ ] `JobConfig` corresponde exatamente ao schema Pydantic do backend
+- [ ] `SSEJobEvent` corresponde ao formato de evento SSE do backend
+- [ ] Sem redefinição de tipos em arquivos individuais (DRY)
+
+---
+
+### TASK-063 — Criar app/core/utils.py (funções utilitárias)
+
+**Módulo:** backend
+**Arquivo(s):** `backend/app/core/utils.py`
+**US:** US-001
+**Depende de:** TASK-002
+**Produz para:** TASK-035 (runner usa check de disco), TASK-024 (cutter usa sanitize_filename)
+
+#### O que criar
+```python
+import shutil
+import os
+from pathlib import Path
+
+def check_disk_space(path: str, required_bytes: int) -> tuple[bool, int]:
+    """
+    Verifica se há espaço suficiente no disco.
+    Retorna (tem_espaço, bytes_disponíveis).
+    """
+    usage = shutil.disk_usage(path)
+    return usage.free >= required_bytes, usage.free
+
+def estimate_video_size_bytes(duration_seconds: float, bitrate_kbps: int = 2000) -> int:
+    """Estima tamanho do vídeo final em bytes baseado na duração e bitrate."""
+    return int(duration_seconds * bitrate_kbps * 1000 / 8)
+
+def sanitize_filename(filename: str) -> str:
+    """
+    Remove ou substitui caracteres inválidos em nomes de arquivo.
+    Previne path traversal: remove '../', '/', '\\', etc.
+    """
+    safe = Path(filename).name  # remove path components
+    safe = "".join(c if c.isalnum() or c in "._- " else "_" for c in safe)
+    return safe[:200]  # limita comprimento
+
+def ensure_dir(path: str) -> None:
+    """Cria diretório e pais se não existirem."""
+    Path(path).mkdir(parents=True, exist_ok=True)
+```
+
+#### Critérios de conclusão
+- [ ] `check_disk_space` funciona em Linux e macOS
+- [ ] `sanitize_filename("../../etc/passwd")` retorna `"..etc_passwd"` (sem path traversal)
+- [ ] `estimate_video_size_bytes(60)` retorna ~15MB (60s × 2Mbps)
+- [ ] Funções documentadas com docstrings
+
+---
+
+### TASK-064 — Criar testes de frontend (stores Pinia + componentes)
+
+**Módulo:** frontend
+**Arquivo(s):** `frontend/src/stores/__tests__/jobs.test.ts`, `frontend/src/stores/__tests__/accounts.test.ts`, `frontend/src/components/__tests__/JobCard.test.ts`
+**US:** US-031, US-008
+**Depende de:** TASK-042, TASK-041, TASK-047
+**Produz para:** CI/CD
+
+#### O que criar
+
+**Setup de testes (`src/test-setup.ts`):**
+```typescript
+import { createPinia, setActivePinia } from 'pinia'
+import { beforeEach } from 'vitest'
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+})
+```
+
+**`stores/__tests__/jobs.test.ts`:**
+- `loadJobs()` popula `jobs` com dados mockados da API
+- `updateJobFromSSE({ job_id: 1, status: 'completed', progress: 100 })` atualiza o job correto
+- `filteredJobs` retorna apenas jobs com o status do filtro
+- `createJob()` chama `POST /api/jobs` e adiciona à lista
+
+**`stores/__tests__/accounts.test.ts`:**
+- `loadAccounts()` popula lista de contas
+- `activeAccounts` retorna apenas contas com `is_active = true`
+- `removeAccount(1)` remove o item correto da lista
+
+**`components/__tests__/JobCard.test.ts`:**
+- Renderiza com status `running` mostrando barra de progresso animada
+- Renderiza com status `completed` mostrando link do YouTube
+- Botão "Ver detalhes" dispara evento de navegação
+
+#### Critérios de conclusão
+- [ ] `npm run test:run` passa 100% para todos os testes de frontend
+- [ ] Mocks de API implementados com `vi.mock('../services/api')`
+- [ ] Sem chamadas reais à API nos testes (tudo mockado)
+- [ ] Cobertura das stores ≥ 80%
