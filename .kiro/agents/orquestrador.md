@@ -9,13 +9,13 @@ tools:
   - web
   - subagent
 resources:
-  - file://./.kiro/agents/product-owner.md
-  - file://./.kiro/agents/arquiteto.md
-  - file://./.kiro/agents/desenvolvedor.md
-  - file://./.kiro/agents/code-reviewer.md
-  - file://./.kiro/agents/qa.md
-  - file://./.kiro/agents/devops.md
-  - file://./.kiro/steering/padrao-commit.md
+  - file://.kiro/agents/product-owner.md
+  - file://.kiro/agents/arquiteto.md
+  - file://.kiro/agents/desenvolvedor.md
+  - file://.kiro/agents/code-reviewer.md
+  - file://.kiro/agents/qa.md
+  - file://.kiro/agents/devops.md
+  - file://.kiro/steering/padrao-commit.md
 welcomeMessage: "Olá! Sou o Orquestrador do time. Me diga o que precisa e vou coordenar os especialistas certos para entregar a solução completa."
 ---
 

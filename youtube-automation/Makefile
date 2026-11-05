@@ -17,6 +17,7 @@ DOCKER_COMPOSE     := docker compose
 DOCKER_COMPOSE_DEV := docker compose -f docker-compose.yml -f docker-compose.dev.yml
 ENV_FILE           := .env
 ENV_EXAMPLE        := .env.example
+SHELL              := /bin/bash
 
 # Cor para output
 GREEN  := \033[0;32m
@@ -184,7 +185,7 @@ ps:
 ## health: Verifica saúde do ambiente (backend, DB, Ollama, FFmpeg, vídeos)
 health:
 	@echo "$(GREEN)Verificando saúde do ambiente...$(RESET)"
-	python scripts/healthcheck.py
+	@python3 scripts/healthcheck.py 2>/dev/null || python scripts/healthcheck.py
 
 ## shell-backend: Abre um shell interativo no container backend
 shell-backend:

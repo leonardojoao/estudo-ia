@@ -1,3 +1,6 @@
+> **✅ DOCUMENTO AUTORITATIVO** — versão completa gerada pelo agente Product Owner.
+> Contém personas detalhadas, todos os épicos, critérios de aceitação expandidos e mapa de dependências.
+
 # Especificação de Produto — YAutomate
 ### Sistema de Automação de Criação e Publicação de Vídeos no YouTube
 

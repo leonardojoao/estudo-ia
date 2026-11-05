@@ -1,3 +1,6 @@
+> **⚠️ ATENÇÃO:** Este é o documento **resumido** gerado manualmente pelo orquestrador.
+> Para a versão completa e autoritativa (com personas detalhadas, todos os épicos e critérios de aceitação expandidos), consulte [`especificacao-produto-po.md`](./especificacao-produto-po.md).
+
 # Especificação de Produto — YouTube Automation
 
 ## Visão do Produto

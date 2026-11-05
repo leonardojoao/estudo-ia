@@ -105,9 +105,9 @@ frontend/coverage/
 data/
 !data/.gitkeep
 
-# Alembic — versões são commitadas, não o banco
-backend/app/db/migrations/versions/*.py
-!backend/app/db/migrations/versions/.gitkeep
+# Alembic — versões de migração SÃO commitadas (descrevem o schema)
+# Apenas o cache do Python é ignorado
+backend/app/db/migrations/versions/__pycache__/
 
 # -----------------------------------------------------------------------------
 # Dados Gerados pelo Pipeline
