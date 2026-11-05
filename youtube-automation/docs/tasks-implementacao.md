@@ -1,7 +1,7 @@
 # Tasks de Implementação — YouTube Automation
 
 > Documento gerado pelo Arquiteto. Cobre 100% dos arquivos da estrutura definida.
-> **67 tasks** organizadas em 6 fases. Cada task = 0.5 a 1 dia de trabalho.
+> **54 tasks** organizadas em 6 fases. Cada task = 0.5 a 1 dia de trabalho.
 > **NÃO é para implementar de uma vez** — siga a ordem das fases e dependências.
 
 ---
@@ -171,7 +171,7 @@ Handlers registram no FastAPI e retornam JSON padronizado:
 #### Critérios de conclusão
 - [ ] `engine` aponta para o path de `Settings.database_path`
 - [ ] `get_db()` fecha a sessão no finally (sem leak de conexão)
-- [ ] WAL mode habilitado: `engine.execute("PRAGMA journal_mode=WAL")` no create_tables
+- [ ] WAL mode habilitado via SQLAlchemy 2.0: `with engine.connect() as conn: conn.execute(text("PRAGMA journal_mode=WAL")); conn.commit()`
 - [ ] Tabela criada automaticamente se banco não existir
 
 ---
@@ -261,7 +261,7 @@ Método de classe `get(db, key, default=None)` e `set(db, key, value)`.
 **Arquivo(s):** `backend/alembic.ini`, `backend/alembic/env.py`, `backend/alembic/versions/001_initial.py`
 **US:** US-002
 **Depende de:** TASK-004, TASK-005, TASK-006, TASK-007
-**Produz para:** TASK-013 (executa migration no lifespan)
+**Produz para:** TASK-011 (executa migration no lifespan)
 
 #### O que criar
 1. `alembic init alembic` — inicializar Alembic no diretório backend
@@ -353,6 +353,9 @@ async def lifespan(app):
     # startup: run alembic upgrade, init scheduler, check FFmpeg
     yield
     # shutdown: stop scheduler
+```
+
+> **Nota:** O módulo `scheduler.py` (TASK-032) é criado na Fase 4. O lifespan deve importá-lo de forma condicional (`try/import`) ou a inicialização do scheduler deve ser adicionada ao lifespan em uma atualização posterior (ao completar TASK-032).
 
 app = FastAPI(title="YouTube Automation", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, ...)
@@ -382,7 +385,7 @@ async def health(): return {"status": "ok", "version": "1.0.0"}
 **Arquivo(s):** `backend/app/api/routes/settings.py`
 **US:** US-004, US-005, US-006
 **Depende de:** TASK-007, TASK-009, TASK-010
-**Produz para:** TASK-049 (frontend consome)
+**Produz para:** TASK-044 (SettingsView.vue consome esta API)
 
 #### O que criar
 ```
@@ -576,7 +579,7 @@ class TextGenOutput(BaseModel):
 **Arquivo(s):** `backend/app/services/text_generation/ollama_generator.py`
 **US:** US-013
 **Depende de:** TASK-017
-**Produz para:** TASK-022, TASK-034, TASK-039
+**Produz para:** TASK-031 (metadata/generator.py usa OllamaGenerator), TASK-039 (testes)
 
 #### O que criar
 Implementação `OllamaGenerator(TextGenerator)`:
@@ -598,9 +601,9 @@ Implementação `OllamaGenerator(TextGenerator)`:
 
 **Módulo:** backend
 **Arquivo(s):** `backend/app/api/routes/ollama.py`
-**US:** US-002 (listagem de modelos), US-010 (seleção de voz)
+**US:** US-011 (Selecionar Modelo Ollama), US-010 (Selecionar voz TTS)
 **Depende de:** TASK-018, TASK-010
-**Produz para:** TASK-056 (frontend usa para popular selects)
+**Produz para:** TASK-049 (TextGenForm carrega modelos), TASK-050 (AudioForm carrega vozes)
 
 #### O que criar
 ```
@@ -854,11 +857,12 @@ def sequence_clips_anti_plagiarism(clips: list[ClipSpec]) -> list[SequencedClip]
 - [ ] Para 1 vídeo, lança `AntiPlagiarismError` com mensagem orientando adicionar mais vídeos
 - [ ] Para 2 vídeos com N/2 clipes cada, alterna perfeitamente ABABAB...
 - [ ] Lista de entrada vazia retorna lista vazia (sem erro)
-- [ ] Validação final com `assert` (ou exceção) garante a propriedade anti-plágio
+- [ ] Validação final garante a propriedade anti-plágio: usar `raise AntiPlagiarismError(...)`, não `assert` (que pode ser desabilitado com `python -O`)
 
 #### Pontos de atenção
 - `heapq` em Python é min-heap — usar valores negativos para simular max-heap
 - Manter o `video_id` do último clipe adicionado para evitar consecutivos
+- **Nunca usar `assert` para a validação final** — usar `raise AntiPlagiarismError` pois `assert` é removido com `python -O`
 
 ---
 
@@ -1148,7 +1152,7 @@ Formato padrão do evento:
 **Módulo:** backend
 **Arquivo(s):** `backend/app/pipeline/steps.py`, `backend/app/pipeline/state.py`
 **US:** US-036
-**Depende de:** TASK-022
+**Depende de:** TASK-017 (text_generation/schemas.py), TASK-020 (audio/schemas.py), TASK-022 (video/schemas.py)
 **Produz para:** TASK-035
 
 #### O que criar
@@ -1204,7 +1208,7 @@ class JobState(BaseModel):
 **Módulo:** backend
 **Arquivo(s):** `backend/app/pipeline/runner.py`
 **US:** US-031, US-036
-**Depende de:** TASK-021, TASK-023, TASK-024, TASK-025, TASK-026, TASK-030, TASK-031, TASK-033, TASK-034
+**Depende de:** TASK-021, TASK-023, TASK-024, TASK-025, TASK-026, TASK-030, TASK-031, TASK-032, TASK-033, TASK-034
 **Produz para:** TASK-036
 
 #### O que criar
@@ -1426,8 +1430,8 @@ export const useAccountsStore = defineStore('accounts', () => {
 **Módulo:** frontend
 **Arquivo(s):** `frontend/src/stores/jobs.ts`
 **US:** US-031, US-034
-**Depende de:** TASK-016, TASK-048
-**Produz para:** TASK-053, TASK-054, TASK-055, TASK-062
+**Depende de:** TASK-016
+**Produz para:** TASK-047, TASK-048, TASK-052, TASK-053, TASK-054
 
 #### O que criar
 ```typescript
@@ -1727,7 +1731,7 @@ Estado da view persistido no Pinia (`useJobsStore`) para não perder ao navegar.
 
 #### Critérios de conclusão
 - [ ] Não é possível avançar sem preencher campos obrigatórios do step atual
-- [ ] Step 5 chama `GET /api/ollama/generate` para título e descrição automaticamente (se IA ativada)
+- [ ] Step 5 (Metadados) dispara `POST /api/jobs/{id}/steps/metadata_generation` para gerar título e descrição via IA (usando o endpoint de execução isolada de etapa definido na TASK-036)
 - [ ] "Iniciar Processamento" chama `POST /api/jobs` + `POST /api/jobs/{id}/run` e redireciona para dashboard
 - [ ] Estado não é perdido ao navegar para `/accounts` e voltar
 
