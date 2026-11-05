@@ -1,0 +1,95 @@
+# =============================================================================
+# docker-compose.dev.yml — Override para Desenvolvimento Local
+#
+# NUNCA use este arquivo em produção.
+#
+# Este arquivo É MESCLADO com docker-compose.yml pelo Docker Compose.
+# Valores escalares (command, restart) substituem o base.
+# Listas (volumes, ports, environment) são ADICIONADAS ao base.
+#
+# Uso direto:  docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# Atalho:      make dev
+#
+# O que este arquivo habilita:
+#   Backend:  uvicorn --reload (hot reload a cada mudança em .py)
+#   Frontend: Vite dev server com HMR (Hot Module Replacement instantâneo)
+#   Código:   montado como volume → mudanças refletem sem rebuild
+# =============================================================================
+
+services:
+
+  # ===========================================================================
+  # BACKEND — hot reload com código-fonte montado
+  # ===========================================================================
+  backend:
+    build:
+      # target: development inclui FFmpeg + pytest + ruff + black
+      target: development
+    # Substitui o CMD do Dockerfile → uvicorn com reload ativo
+    command: >
+      uvicorn main:app
+        --host 0.0.0.0
+        --port 8000
+        --reload
+        --reload-dir /app
+        --log-level debug
+    volumes:
+      # Monta o código-fonte: qualquer mudança em .py dispara reload
+      - ./backend:/app
+      # Volumes de dev em namespaces separados (não contamina dados de prod)
+      - dev-db-data:/app/data
+      - dev-credentials:/app/credentials
+      - dev-output:/app/output
+      # VIDEOS_FOLDER_HOST sobrescreve o mount do base (compose merge de listas)
+      # O base monta com :ro — dev monta sem (read/write para testes)
+      - ${VIDEOS_FOLDER_HOST:-./videos}:/app/videos
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: DEBUG
+      # SECRET_KEY de desenvolvimento — fallback seguro para não bloquear o start
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-only-for-local-development}
+      # Libera CORS para Vite dev server
+      CORS_ORIGINS: "http://localhost:5173,http://localhost:80,http://localhost"
+    # Health check mais rápido em dev (menos espera para iniciar)
+    healthcheck:
+      interval: 10s
+      start_period: 10s
+    # Sem restart automático em dev — facilita ver o motivo de crashes
+    restart: "no"
+
+  # ===========================================================================
+  # FRONTEND — Vite dev server com HMR
+  # Usa Dockerfile.dev (Node 20) em vez do Dockerfile de produção (Nginx)
+  # ===========================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    volumes:
+      # Código-fonte montado para HMR — Vite detecta mudanças automaticamente
+      - ./frontend:/app
+      # Volume anônimo para node_modules do container
+      # ESSENCIAL: evita que o mount do host sobrescreva os node_modules
+      # instalados dentro do container (que podem ter binários compilados)
+      - /app/node_modules
+    environment:
+      # URL base da API — aponta para o backend em dev
+      VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    restart: "no"
+
+# =============================================================================
+# Volumes de desenvolvimento — separados dos volumes de produção
+# Prefixo 'dev-' garante que dados de dev e prod não se misturem
+# =============================================================================
+volumes:
+  dev-db-data:
+    name: youtube-automation-dev-db
+
+  dev-credentials:
+    name: youtube-automation-dev-credentials
+
+  dev-output:
+    name: youtube-automation-dev-output

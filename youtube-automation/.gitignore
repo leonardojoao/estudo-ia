@@ -1,0 +1,185 @@
+# =============================================================================
+# .gitignore — YouTube Automation
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Secrets e Configurações Locais — NUNCA commitar
+# -----------------------------------------------------------------------------
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+secrets/
+*.pem
+*.key
+*.cert
+
+# Credenciais OAuth do YouTube (tokens de acesso)
+credentials/
+oauth_tokens/
+client_secrets.json
+token.json
+*_credentials.json
+
+# -----------------------------------------------------------------------------
+# Python
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Ambientes virtuais
+venv/
+.venv/
+env/
+ENV/
+.env.bak/
+venv.bak/
+
+# Pytest e cobertura
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+nosetests.xml
+*.cover
+.hypothesis/
+
+# Mypy, Pyright
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyright/
+
+# Ruff
+.ruff_cache/
+
+# -----------------------------------------------------------------------------
+# Node.js / Frontend
+# -----------------------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.pnpm-store/
+
+# Build Vite/Vue
+frontend/dist/
+frontend/.vite/
+frontend/dist-ssr/
+
+# Vitest
+frontend/coverage/
+
+# -----------------------------------------------------------------------------
+# Banco de Dados
+# -----------------------------------------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+# Mantém estrutura de pastas mas ignora o banco gerado
+data/
+!data/.gitkeep
+
+# Alembic — versões são commitadas, não o banco
+backend/app/db/migrations/versions/*.py
+!backend/app/db/migrations/versions/.gitkeep
+
+# -----------------------------------------------------------------------------
+# Dados Gerados pelo Pipeline
+# -----------------------------------------------------------------------------
+output/
+tmp/
+temp/
+*.mp4
+*.mp3
+*.wav
+*.avi
+*.mov
+# Vídeos fonte (muito grandes para o git)
+videos/
+!videos/.gitkeep
+
+# -----------------------------------------------------------------------------
+# Logs
+# -----------------------------------------------------------------------------
+*.log
+logs/
+!logs/.gitkeep
+
+# -----------------------------------------------------------------------------
+# Docker
+# -----------------------------------------------------------------------------
+# Os arquivos Docker SÃO commitados (são código de infraestrutura)
+# Mas dados de runtime não são
+.docker/
+
+# -----------------------------------------------------------------------------
+# IDE e Sistema Operacional
+# -----------------------------------------------------------------------------
+# JetBrains (PyCharm, WebStorm, etc.)
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# VSCode (configurações pessoais — não as do projeto)
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json.example
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V4
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+
+# Vim
+*.swp
+*.swo
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+
+# -----------------------------------------------------------------------------
+# Misc
+# -----------------------------------------------------------------------------
+*.bak
+*.backup
+*.orig

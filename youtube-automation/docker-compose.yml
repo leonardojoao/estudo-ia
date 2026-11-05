@@ -1,0 +1,141 @@
+# =============================================================================
+# docker-compose.yml — YouTube Automation (Configuração Base / Produção)
+#
+# Uso produção:  docker compose up -d
+# Uso dev:       docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# Atalhos:       make prod | make dev
+#
+# Requisitos:
+#   - Docker 24+ com Compose plugin v2+
+#   - Arquivo .env configurado (cp .env.example .env)
+#   - Ollama rodando na máquina host (porta 11434)
+#   - FFmpeg não é necessário no host — está dentro do container
+# =============================================================================
+
+services:
+
+  # ===========================================================================
+  # BACKEND — FastAPI + Uvicorn + SQLite
+  # ===========================================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: youtube-automation-backend
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      # --- Banco de dados ---
+      DATABASE_PATH: ${DATABASE_PATH:-/app/data/youtube_automation.db}
+
+      # --- Pasta de vídeos (path dentro do container, mapeado por volume) ---
+      VIDEOS_FOLDER: /app/videos
+
+      # --- Ollama (IA local na máquina host) ---
+      # host.docker.internal resolve para o IP do host no Docker
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
+
+      # --- Segurança ---
+      # OBRIGATÓRIO: gere com `openssl rand -hex 32` e coloque no .env
+      # NÃO use o valor padrão abaixo em produção
+      SECRET_KEY: ${SECRET_KEY:-TROQUE-ESTA-CHAVE-ANTES-DE-USAR-EM-PRODUCAO}
+
+      # --- Credenciais OAuth YouTube ---
+      OAUTH_CREDENTIALS_PATH: /app/credentials
+
+      # --- TTS e processamento de vídeo ---
+      TTS_VOICE: ${TTS_VOICE:-en-US-JennyNeural}
+      DEFAULT_DIMENSION: ${DEFAULT_DIMENSION:-16:9}
+      CLIP_MIN_DURATION: ${CLIP_MIN_DURATION:-3}
+      CLIP_MAX_DURATION: ${CLIP_MAX_DURATION:-6}
+
+      # --- Aplicação ---
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:80}
+      MAX_WORKERS: ${MAX_WORKERS:-2}
+
+    volumes:
+      # Banco SQLite persistente (sobrevive a restart do container)
+      - db-data:/app/data
+
+      # Vídeos fonte do usuário — leitura apenas em produção
+      # Configure VIDEOS_FOLDER_HOST no .env com o caminho da sua pasta
+      - ${VIDEOS_FOLDER_HOST:-./videos}:/app/videos:ro
+
+      # Tokens OAuth do YouTube (criptografados pelo app)
+      - credentials-data:/app/credentials
+
+      # Vídeos processados gerados pelo pipeline
+      - output-data:/app/output
+
+    networks:
+      - app-network
+
+    extra_hosts:
+      # Permite que o container acesse serviços na máquina host (Ollama)
+      # Linux: Docker resolve via 'host-gateway' (IP do docker0 bridge)
+      # macOS/Windows: host.docker.internal funciona nativamente
+      - "host.docker.internal:host-gateway"
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+    restart: unless-stopped
+
+  # ===========================================================================
+  # FRONTEND — Vue 3 + Nginx
+  # Proxy reverso para /api e /api/sse → backend
+  # ===========================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: youtube-automation-frontend
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health-frontend"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+# =============================================================================
+# Rede interna — os serviços se comunicam por nome (backend, frontend)
+# O backend não é acessível externamente exceto pela porta mapeada
+# =============================================================================
+networks:
+  app-network:
+    driver: bridge
+    name: youtube-automation-network
+
+# =============================================================================
+# Volumes nomeados para persistência de dados
+# Use `docker volume inspect <nome>` para ver onde os dados ficam no host
+# =============================================================================
+volumes:
+  db-data:
+    name: youtube-automation-db
+    driver: local
+
+  credentials-data:
+    name: youtube-automation-credentials
+    driver: local
+
+  output-data:
+    name: youtube-automation-output
+    driver: local
