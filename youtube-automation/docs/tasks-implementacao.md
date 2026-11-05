@@ -1,7 +1,7 @@
 # Tasks de Implementação — YouTube Automation
 
 > Documento gerado pelo Arquiteto. Cobre 100% dos arquivos da estrutura definida.
-> **57 tasks** organizadas em 6 fases. Cada task = 0.5 a 1 dia de trabalho.
+> **61 tasks** organizadas em 6 fases. Cada task = 0.5 a 1 dia de trabalho.
 > **NÃO é para implementar de uma vez** — siga a ordem das fases e dependências.
 
 ---
@@ -374,6 +374,7 @@ async def health(): return {"status": "ok", "version": "1.0.0"}
 - [ ] `GET /health` retorna `200 {"status": "ok"}`
 - [ ] CORS aceita origens de `settings.cors_origins`
 - [ ] Lifespan executa `alembic upgrade head` na inicialização
+- [ ] **Lifespan faz recovery de zombie jobs:** na startup, seta `status=error` em todos os jobs com `status=running` (interrompidos por crash/restart)
 - [ ] Lifespan verifica se FFmpeg está disponível e loga warning se não estiver
 - [ ] Aplicação inicia sem `.env` (usando defaults, exceto `secret_key`)
 
@@ -690,6 +691,9 @@ Implementação `EdgeTTSGenerator(AudioGenerator)`:
 - [ ] `actual_duration_seconds` corresponde à duração real do arquivo gerado
 - [ ] Segunda tentativa aplicada automaticamente se fora da tolerância
 - [ ] `output_path` é criado com permissões corretas (sem erro de escrita)
+- [ ] **Retry com exponential backoff:** 3 tentativas (2s, 4s, 8s) antes de falhar com erro definitivo
+- [ ] **Timeout de 30s** por requisição ao edge-tts (evita hang indefinido)
+- [ ] `httpx.RemoteProtocolError` e HTTP 429 tratados como erros retentáveis (não como falha definitiva)
 
 #### Pontos de atenção
 - `edge-tts` requer conexão com internet — lançar erro descritivo se falhar com `httpx.ConnectError`
@@ -1026,11 +1030,11 @@ class JobConfig(BaseModel):
 #### Critérios de conclusão
 - [ ] `PipelineStep.VINTAGE_EFFECT` adicionado ao enum
 - [ ] `STEP_METADATA` atualizado com `optional=True` para o novo step
-- [ ] `JobState` tem campo `vintage_video_path`
+- [ ] `JobState` tem campo `vintage_video_path` e `temp_paths: list[str]` (para cleanup no finally)
 - [ ] `runner.py` verifica `job_config.vintage_effect_enabled` antes de executar a etapa
 - [ ] Se desabilitado, etapa aparece como `skipped` no `job_steps` (não `pending`)
 - [ ] `composed_video_path` atualizado para o vídeo com efeito quando habilitado
-- [ ] Pesos do `STEP_METADATA` ainda somam 100 após adição do novo step
+- [ ] **Progresso com optional steps:** o cálculo de progresso filtra steps `skipped` da soma de pesos — a barra sempre chega a 100% independentemente do vintage estar ativo ou não
 
 ---
 
@@ -1165,6 +1169,8 @@ async def test_token(account: YouTubeAccount, settings: Settings) -> bool:
 #### Pontos de atenção
 - O callback OAuth deve usar `http://localhost:8000/api/accounts/oauth/callback` como `redirect_uri`
 - Google Cloud Console deve ter este URI cadastrado como redirect autorizado
+- **CSRF state storage:** gerar um UUID como `state` ao criar a URL OAuth → salvar em nova tabela `oauth_states(state_token TEXT, expires_at DATETIME)` com TTL de 10 min → validar e deletar no callback. Sem esse storage, a validação CSRF não pode ser implementada
+- **SECRET_KEY rotation:** se a chave mudar, `decrypt()` lança `InvalidToken`. Tratar separadamente de token OAuth inválido → retornar status `"credentials_corrupted"` → UI exibe "Reconecte a conta" (diferente de "Token expirado")
 
 ---
 
@@ -1228,6 +1234,7 @@ async def upload_video(
 - [ ] `video_id` retornado após upload completo
 - [ ] `YouTubeAPIError` lançado com code e message da API em caso de falha
 - [ ] Token renovado automaticamente se expirado antes do upload
+- [ ] **`quotaExceeded` tratado especificamente:** retornar mensagem orientada ao usuário com horário de renovação da quota (meia-noite PT) e sugerir reagendamento automático para 01h00 PT do dia seguinte
 
 ---
 
@@ -1440,6 +1447,10 @@ async def run_single_step(
 - [ ] Job cancelado (`status=cancelled`) interrompe o pipeline graciosamente
 - [ ] `run_pipeline` executado em background task (não bloqueia o endpoint)
 - [ ] Cada etapa tem seu `JobStep` salvo com `started_at` e `completed_at`
+- [ ] **Limpeza de temporários no `finally`:** runner registra todos os paths temporários criados no `JobState.temp_paths` e executa `shutil.rmtree` no bloco `finally`, independentemente de sucesso ou falha
+- [ ] **Verificação de disco antes de iniciar:** estimar espaço necessário (duração_audio × bitrate_estimado × 3) e verificar disponível via `shutil.disk_usage`. Falhar imediatamente com mensagem clara se insuficiente
+- [ ] **Progresso calculado dinamicamente:** filtrar steps `skipped` antes de somar pesos — garante que barra sempre chegue a 100% independentemente de steps opcionais (vintage) estarem ativados ou não
+- [ ] **Concorrência limitada:** máximo `settings.max_concurrent_jobs` (default: 2) jobs em paralelo. Job aguarda em fila se limite atingido
 
 ---
 
@@ -2017,6 +2028,10 @@ View acessível em `/jobs/{id}` com:
 | TASK-055 | US-039 | `services/video/effects.py` | 3 |
 | TASK-056 | US-039 | `pipeline/steps.py` + `state.py` + `runner.py` | 5 |
 | TASK-057 | US-039 | `VideoForm.vue` (atualização) | 6 |
+| TASK-058 | US-029 | `services/youtube/uploader.py` (tags) | 4 |
+| TASK-059 | — | `api/routes/text_generation.py` (preview wizard) | 2 |
+| TASK-060 | — | `api/routes/audio.py` (preview wizard) | 2 |
+| TASK-061 | US-007 | `app/db/migrations/002_oauth_states.py` | 4 |
 
 ---
 
@@ -2025,12 +2040,12 @@ View acessível em `/jobs/{id}` com:
 | Fase | Tasks | Foco |
 |---|---|---|
 | 1 — Fundação | TASK-001 a TASK-016 | Backend base + DB + Frontend scaffold |
-| 2 — IA e Áudio | TASK-017 a TASK-021 | Ollama + edge-tts |
+| 2 — IA e Áudio | TASK-017 a TASK-021 + TASK-059 + TASK-060 | Ollama + edge-tts + endpoints de preview |
 | 3 — Vídeo | TASK-022 a TASK-026 + TASK-055 | FFmpeg + algoritmo anti-plágio + efeito vintage |
-| 4 — YouTube | TASK-027 a TASK-032 | OAuth + upload + agendamento |
+| 4 — YouTube | TASK-027 a TASK-032 + TASK-058 + TASK-061 | OAuth + upload + agendamento + tags + CSRF state |
 | 5 — Orquestração | TASK-033 a TASK-039 + TASK-056 | Pipeline runner + SSE + testes + etapa vintage |
 | 6 — Interface | TASK-040 a TASK-054 + TASK-057 | Todas as views e componentes Vue + toggle vintage |
-| **Total** | **57 tasks** | **Sistema completo** |
+| **Total** | **61 tasks** | **Sistema completo** |
 
 ---
 
@@ -2055,3 +2070,126 @@ View acessível em `/jobs/{id}` com:
 | `stores/accounts.ts` | `src/services/api.ts` | OAuth URL + CRUD de contas |
 | `NewJobView.vue` | `stores/jobs.ts` | Cria job + dispara pipeline |
 | `DashboardView.vue` | `stores/jobs.ts` + `services/sse.ts` | Lista jobs + atualizações em tempo real |
+
+---
+
+## Tasks Adicionadas pela Análise de Escopo
+
+---
+
+### TASK-058 — Adicionar tags/keywords ao upload do YouTube
+
+**Módulo:** backend
+**Arquivo(s):** `backend/app/services/youtube/uploader.py`, `backend/app/services/metadata/generator.py`
+**US:** US-029
+**Depende de:** TASK-030, TASK-031
+**Produz para:** TASK-036 (pipeline usa)
+
+#### O que criar
+- Adicionar parâmetro `tags: list[str]` ao `upload_video()`
+- Em `metadata/generator.py`, adicionar `generate_tags(narrator_text, ollama_url, model) -> list[str]`: gera lista de 5-10 palavras-chave via Ollama
+- Tags incluídas no payload da YouTube Data API (`snippet.tags`)
+- `UploadForm.vue`: campo editável de tags (lista de badges, adicionar/remover), pré-preenchido pela IA
+
+#### Critérios de conclusão
+- [ ] `generate_tags()` retorna lista de 5-10 strings (sem `#`, sem espaços duplos)
+- [ ] Cada tag ≤ 30 caracteres (limite da API)
+- [ ] Tags enviadas no upload via `snippet.tags`
+- [ ] `UploadForm.vue` exibe tags como badges editáveis
+
+#### Pontos de atenção
+- YouTube API limita tags a 500 caracteres total (soma de todas as tags)
+- Tags com espaços são válidas mas devem ser enviadas sem aspas na API
+
+---
+
+### TASK-059 — Criar api/routes/text_generation.py (preview no wizard)
+
+**Módulo:** backend
+**Arquivo(s):** `backend/app/api/routes/text_generation.py`
+**US:** US-013, US-014
+**Depende de:** TASK-018
+**Produz para:** TASK-049 (TextGenForm chama este endpoint)
+
+#### O que criar
+O wizard precisa gerar e exibir texto ANTES de criar o job. Sem este endpoint, TextGenForm.vue não tem como chamar o Ollama.
+
+```
+POST /api/text-generation/generate
+  body: { prompt, model, max_tokens, temperature }
+  response: { text, model, duration_ms }
+
+POST /api/text-generation/generate-batch
+  body: { prompt, model, count, max_tokens }
+  response: { texts: [{ text, index, error? }], total, failed }
+```
+
+#### Critérios de conclusão
+- [ ] `POST /api/text-generation/generate` retorna texto ou erro do Ollama
+- [ ] `POST /api/text-generation/generate-batch` executa N gerações com streaming de progresso (SSE ou resposta ao final com array)
+- [ ] Ambos tratam `OllamaUnavailableError` com HTTP 503 e mensagem descritiva
+- [ ] Não persiste nada no banco — apenas geração sob demanda
+
+---
+
+### TASK-060 — Criar api/routes/audio.py (preview no wizard)
+
+**Módulo:** backend
+**Arquivo(s):** `backend/app/api/routes/audio.py`
+**US:** US-017, US-018
+**Depende de:** TASK-021
+**Produz para:** TASK-050 (AudioForm chama este endpoint)
+
+#### O que criar
+O wizard precisa gerar e reproduzir áudio ANTES de criar o job. Sem este endpoint, AudioForm.vue não tem como gerar preview.
+
+```
+POST /api/audio/generate
+  body: { text, voice, target_duration_seconds, rate }
+  response: { file_url, actual_duration_seconds, within_tolerance }
+
+GET /api/audio/preview/{filename}
+  response: streaming do arquivo MP3 (para o player HTML5)
+
+GET /api/audio/voices
+  response: lista de vozes disponíveis
+```
+
+Os arquivos de preview ficam em `/tmp/audio_preview/` com TTL de 1h (limpeza periódica via APScheduler).
+
+#### Critérios de conclusão
+- [ ] `POST /api/audio/generate` gera MP3 e retorna URL de preview
+- [ ] `GET /api/audio/preview/{filename}` serve o arquivo com `Content-Type: audio/mpeg`
+- [ ] Arquivos de preview limpos automaticamente após 1h
+- [ ] `GET /api/audio/voices` retorna lista de vozes (pode reusar lógica de TASK-019)
+
+---
+
+### TASK-061 — Criar migration 002: tabela oauth_states (CSRF)
+
+**Módulo:** backend
+**Arquivo(s):** `backend/alembic/versions/002_oauth_states.py`
+**US:** US-007
+**Depende de:** TASK-008
+**Produz para:** TASK-028 (auth.py usa para validar CSRF)
+
+#### O que criar
+```sql
+CREATE TABLE oauth_states (
+    state_token TEXT PRIMARY KEY,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    expires_at  DATETIME NOT NULL  -- created_at + 10 minutos
+);
+```
+
+Funções em `services/youtube/auth.py`:
+- `create_oauth_state(db) -> str`: gera UUID, insere no banco, retorna o UUID
+- `validate_oauth_state(db, state) -> bool`: verifica existência e expiração, deleta após validação
+- Cleanup periódico de states expirados via APScheduler (a cada 30min)
+
+#### Critérios de conclusão
+- [ ] `alembic upgrade head` cria a tabela
+- [ ] `create_oauth_state` insere state com `expires_at = now() + 10min`
+- [ ] `validate_oauth_state` retorna `False` se não encontrado ou expirado (não levanta exceção)
+- [ ] State deletado após validação bem-sucedida (uso único)
+- [ ] Cleanup periódico de states expirados via APScheduler
