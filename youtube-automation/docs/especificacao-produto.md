@@ -406,3 +406,25 @@
 - [ ] Sem erros no console (frontend e backend)
 - [ ] Módulo é independente e testável em isolamento
 - [ ] Variáveis sensíveis em variáveis de ambiente (nunca hardcode)
+
+---
+
+### US-039 — Aplicar Efeito de Vídeo Antigo (Vintage)
+
+**Como** Pedro (criador de conteúdo),
+**Eu quero** aplicar um efeito de vídeo antigo/vintage ao vídeo gerado,
+**Para que** o conteúdo tenha um estilo retrô diferenciado que crie identidade visual única.
+
+**Critérios de Aceitação:**
+- [ ] Opção "Efeito Vintage" disponível na seção de vídeo do formulário de novo processamento
+- [ ] Quando ativado, aplica filtros de vídeo antigo ao arquivo final após a composição
+- [ ] Três níveis de intensidade disponíveis: Leve | Médio | Forte
+- [ ] Cada nível tem descrição textual do que muda visualmente
+- [ ] Efeito é uma etapa **opcional** do pipeline — desativado por padrão
+- [ ] Quando ativado, aparece como etapa `vintage_effect` no histórico de steps do job
+- [ ] Quando desativado, aparece como `skipped` (não como erro ou pendente)
+- [ ] Output do efeito substitui o vídeo composto como arquivo final para upload
+
+**Prioridade:** Should | **Estimativa:** M
+**Épico:** E6 (Processamento de Vídeo)
+**Notas:** Efeito implementado via filtergraph do FFmpeg — sem dependência de biblioteca externa adicional. Filtros: sépia/tom quente (`curves=vintage`), granulação de filme (`noise`), vinheta (`vignette`), dessaturação (`eq`).

@@ -1,7 +1,7 @@
 # Tasks de Implementação — YouTube Automation
 
 > Documento gerado pelo Arquiteto. Cobre 100% dos arquivos da estrutura definida.
-> **54 tasks** organizadas em 6 fases. Cada task = 0.5 a 1 dia de trabalho.
+> **57 tasks** organizadas em 6 fases. Cada task = 0.5 a 1 dia de trabalho.
 > **NÃO é para implementar de uma vez** — siga a ordem das fases e dependências.
 
 ---
@@ -897,6 +897,203 @@ async def compose_video(input: VideoCompositionInput) -> VideoCompositionOutput:
 - [ ] 9:16 saída em 1080x1920
 - [ ] Arquivos temporários (list.txt, temp_video.mp4) removidos após sucesso
 - [ ] Executado em ProcessPoolExecutor
+
+---
+
+### TASK-055 — Criar services/video/effects.py (efeito vintage)
+
+**Módulo:** backend
+**Arquivo(s):** `backend/app/services/video/effects.py`
+**US:** US-039
+**Depende de:** TASK-022, TASK-026
+**Produz para:** TASK-056, TASK-034 (novo step no pipeline)
+
+#### O que criar
+
+```python
+from enum import Enum
+
+class VintageIntensity(str, Enum):
+    LIGHT  = "light"
+    MEDIUM = "medium"
+    STRONG = "strong"
+
+# Parâmetros por intensidade
+INTENSITY_PARAMS = {
+    VintageIntensity.LIGHT:  {"noise": 8,  "saturation": 0.85, "vignette": "PI/6", "contrast": 0.97},
+    VintageIntensity.MEDIUM: {"noise": 18, "saturation": 0.65, "vignette": "PI/4", "contrast": 0.93},
+    VintageIntensity.STRONG: {"noise": 30, "saturation": 0.40, "vignette": "PI/3", "contrast": 0.88},
+}
+
+async def apply_vintage_effect(
+    input_path: str,
+    output_path: str,
+    intensity: VintageIntensity = VintageIntensity.MEDIUM,
+) -> VideoCompositionOutput:
+    """
+    Aplica efeito de vídeo antigo via filtergraph do FFmpeg.
+
+    Filtros encadeados (ordem importa):
+    1. curves=vintage         → tom sépia/quente (filtro nativo do FFmpeg)
+    2. noise=alls={n}:allf=t+u → granulação de filme (ruído temporal + uniforme)
+    3. vignette={angle}       → vinheta (escurecimento das bordas)
+    4. eq=saturation={s}:contrast={c} → dessaturação e contraste reduzido
+
+    Comando FFmpeg resultante (exemplo intensidade MEDIUM):
+      ffmpeg -i input.mp4 -vf
+        "curves=vintage,
+         noise=alls=18:allf=t+u,
+         vignette=PI/4,
+         eq=saturation=0.65:contrast=0.93"
+        -c:v libx264 -c:a copy -crf 18 output.mp4
+
+    Executa em ProcessPoolExecutor (CPU-bound).
+    Remove input_path após sucesso se for arquivo temporário.
+    Retorna VideoCompositionOutput com metadados do arquivo de saída.
+    """
+```
+
+#### Critérios de conclusão
+- [ ] `apply_vintage_effect` gera arquivo MP4 com efeito visível nos 3 níveis
+- [ ] Áudio preservado sem alteração (`-c:a copy`)
+- [ ] Codec de saída: H.264 com CRF 18 (qualidade alta, sem perdas perceptíveis)
+- [ ] Executado em ProcessPoolExecutor (não bloqueia event loop)
+- [ ] `FFmpegError` lançado com stderr se o comando falhar
+- [ ] Arquivo de saída com sufixo `_vintage` no nome para identificação
+- [ ] `VideoCompositionOutput` retornado com metadados atualizados do arquivo final
+
+#### Pontos de atenção
+- `curves=vintage` é um preset nativo do FFmpeg — não requer parâmetros extras, mas exige FFmpeg compilado com `--enable-libfreetype` (padrão nas distribuições comuns)
+- `noise=allf=t+u` combina ruído temporal (`t`) e uniforme (`u`) — mais realista que apenas `u`
+- A ordem dos filtros importa: sépia → ruído → vinheta → eq (do mais global ao mais local)
+- `vignette` aceita ângulo em radianos — `PI/4 ≈ 45°` é o ponto visual ideal para "médio"
+- Para o nível **Forte**, considerar adicionar `hue=s=0` (preto e branco) antes do `curves=vintage` para efeito mais dramático
+
+---
+
+### TASK-056 — Atualizar pipeline/steps.py com etapa VINTAGE_EFFECT
+
+**Módulo:** backend
+**Arquivo(s):** `backend/app/pipeline/steps.py`, `backend/app/pipeline/state.py`, `backend/app/pipeline/runner.py`
+**US:** US-039
+**Depende de:** TASK-034, TASK-055
+**Produz para:** TASK-035 (runner precisa tratar etapa condicional)
+
+#### O que criar
+
+**steps.py** — adicionar ao enum e ao STEP_METADATA:
+```python
+class PipelineStep(str, Enum):
+    # ... etapas existentes ...
+    VINTAGE_EFFECT = "vintage_effect"   # etapa opcional — só executa se habilitada no config
+
+STEP_METADATA = {
+    # ... existentes ...
+    PipelineStep.VINTAGE_EFFECT: StepMeta(
+        name="Efeito Vintage",
+        weight=8,          # reduz o peso das outras etapas proporcionalmente
+        optional=True,     # flag que indica etapa condicional
+    ),
+}
+```
+
+**state.py** — adicionar campo ao `JobState`:
+```python
+class JobState(BaseModel):
+    # ... campos existentes ...
+    vintage_video_path: str | None = None   # preenchido se efeito foi aplicado
+```
+
+**runner.py** — tratar etapa opcional:
+```python
+# Na execução do pipeline, antes de METADATA_GENERATION:
+if job_config.vintage_effect_enabled:
+    # executa VINTAGE_EFFECT normalmente
+    state.vintage_video_path = await run_vintage_step(state, settings)
+    # atualiza composed_video_path para apontar ao vídeo com efeito
+    state.composed_video_path = state.vintage_video_path
+# else: pula a etapa, composed_video_path já aponta ao vídeo sem efeito
+```
+
+**schemas/job.py** — adicionar ao `JobConfig`:
+```python
+class JobConfig(BaseModel):
+    # ... campos existentes ...
+    vintage_effect_enabled: bool = False
+    vintage_intensity: VintageIntensity = VintageIntensity.MEDIUM
+```
+
+#### Critérios de conclusão
+- [ ] `PipelineStep.VINTAGE_EFFECT` adicionado ao enum
+- [ ] `STEP_METADATA` atualizado com `optional=True` para o novo step
+- [ ] `JobState` tem campo `vintage_video_path`
+- [ ] `runner.py` verifica `job_config.vintage_effect_enabled` antes de executar a etapa
+- [ ] Se desabilitado, etapa aparece como `skipped` no `job_steps` (não `pending`)
+- [ ] `composed_video_path` atualizado para o vídeo com efeito quando habilitado
+- [ ] Pesos do `STEP_METADATA` ainda somam 100 após adição do novo step
+
+---
+
+### TASK-057 — Atualizar VideoForm.vue com toggle de efeito vintage
+
+**Módulo:** frontend
+**Arquivo(s):** `frontend/src/components/forms/VideoForm.vue`
+**US:** US-039
+**Depende de:** TASK-051
+**Produz para:** TASK-053 (NewJobView lê o config do form)
+
+#### O que criar
+
+Adicionar seção "Efeito Visual" no `VideoForm.vue` (abaixo da seleção de dimensão):
+
+```vue
+<!-- Seção: Efeito Visual -->
+<div class="space-y-3">
+  <Label>Efeito Visual</Label>
+
+  <!-- Toggle principal -->
+  <div class="flex items-center gap-3">
+    <Switch v-model="vintageEnabled" id="vintage-toggle" />
+    <Label for="vintage-toggle">Efeito de Vídeo Antigo (Vintage)</Label>
+  </div>
+
+  <!-- Seletor de intensidade — visível apenas quando toggle ativo -->
+  <div v-if="vintageEnabled" class="ml-7 space-y-2">
+    <RadioGroup v-model="vintageIntensity">
+      <RadioGroupItem value="light">
+        <span class="font-medium">Leve</span>
+        <span class="text-muted">— Tom levemente sépia, granulação sutil, vinheta discreta</span>
+      </RadioGroupItem>
+      <RadioGroupItem value="medium">
+        <span class="font-medium">Médio</span>
+        <span class="text-muted">— Sépia pronunciado, granulação de filme, vinheta visível</span>
+      </RadioGroupItem>
+      <RadioGroupItem value="strong">
+        <span class="font-medium">Forte</span>
+        <span class="text-muted">— Preto e branco envelhecido, granulação intensa, bordas escuras</span>
+      </RadioGroupItem>
+    </RadioGroup>
+
+    <!-- Card explicativo dos efeitos aplicados -->
+    <Card class="p-3 bg-muted/40">
+      <p class="text-sm text-muted-foreground">
+        <strong>Filtros aplicados:</strong>
+        Tom sépia/quente · Granulação de filme · Vinheta nas bordas · Dessaturação
+      </p>
+    </Card>
+  </div>
+</div>
+```
+
+O componente expõe `vintageEnabled` e `vintageIntensity` via `defineExpose` ou como parte do objeto de configuração emitido para o `NewJobView`.
+
+#### Critérios de conclusão
+- [ ] Toggle visível na seção "Efeito Visual" do VideoForm
+- [ ] Seletor de intensidade aparece apenas quando toggle está ativo
+- [ ] Cada intensidade tem descrição textual clara do que muda
+- [ ] Card explicativo descreve os filtros aplicados
+- [ ] Valores `vintageEnabled` e `vintageIntensity` incluídos no `JobConfig` ao criar o processamento
+- [ ] Estado persistido no Pinia ao navegar entre steps do wizard
 
 ---
 
@@ -1817,6 +2014,9 @@ View acessível em `/jobs/{id}` com:
 | TASK-052 | US-037 | `StepOutput.vue` + `StepDebugger.vue` | 6 |
 | TASK-053 | US-034 | `NewJobView.vue` | 6 |
 | TASK-054 | US-037 | `JobDetailView.vue` | 6 |
+| TASK-055 | US-039 | `services/video/effects.py` | 3 |
+| TASK-056 | US-039 | `pipeline/steps.py` + `state.py` + `runner.py` | 5 |
+| TASK-057 | US-039 | `VideoForm.vue` (atualização) | 6 |
 
 ---
 
@@ -1826,11 +2026,11 @@ View acessível em `/jobs/{id}` com:
 |---|---|---|
 | 1 — Fundação | TASK-001 a TASK-016 | Backend base + DB + Frontend scaffold |
 | 2 — IA e Áudio | TASK-017 a TASK-021 | Ollama + edge-tts |
-| 3 — Vídeo | TASK-022 a TASK-026 | FFmpeg + algoritmo anti-plágio |
+| 3 — Vídeo | TASK-022 a TASK-026 + TASK-055 | FFmpeg + algoritmo anti-plágio + efeito vintage |
 | 4 — YouTube | TASK-027 a TASK-032 | OAuth + upload + agendamento |
-| 5 — Orquestração | TASK-033 a TASK-039 | Pipeline runner + SSE + testes |
-| 6 — Interface | TASK-040 a TASK-054 | Todas as views e componentes Vue |
-| **Total** | **54 tasks** | **Sistema completo** |
+| 5 — Orquestração | TASK-033 a TASK-039 + TASK-056 | Pipeline runner + SSE + testes + etapa vintage |
+| 6 — Interface | TASK-040 a TASK-054 + TASK-057 | Todas as views e componentes Vue + toggle vintage |
+| **Total** | **57 tasks** | **Sistema completo** |
 
 ---
 
@@ -1846,6 +2046,8 @@ View acessível em `/jobs/{id}` com:
 | `pipeline/runner.py` | `services/video/composer.py` | Passa `SequencedClip[]` + `audio_path` para montagem |
 | `pipeline/runner.py` | `services/metadata/generator.py` | Passa `narrator_text` para gerar título e descrição |
 | `pipeline/runner.py` | `services/youtube/uploader.py` | Passa `video_path` + metadados + conta para upload |
+| `pipeline/runner.py` | `services/video/effects.py` | Executa `apply_vintage_effect()` condicionalmente (se `job_config.vintage_effect_enabled`) |
+| `services/video/effects.py` | `pipeline/state.py` | Preenche `state.vintage_video_path` e atualiza `state.composed_video_path` |
 | `pipeline/runner.py` | `app/core/events.py` | Publica eventos SSE a cada mudança de etapa |
 | `api/routes/sse.py` | `app/core/events.py` | Subscribe no EventBus para stream ao cliente |
 | `stores/jobs.ts` | `services/sse.ts` | SSE client notifica store via callback |

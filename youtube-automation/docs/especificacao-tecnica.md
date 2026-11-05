@@ -607,3 +607,54 @@ tailwindcss@^3.4
 shadcn-vue (componentes via CLI)
 @vueuse/core@^10.9
 ```
+
+
+---
+
+## Funcionalidade: Efeito de Vídeo Antigo (Vintage)
+
+### Posição no Pipeline
+
+```
+video_composition → vintage_effect (condicional) → metadata_generation → upload
+```
+
+A etapa `vintage_effect` só é executada quando `job_config.vintage_effect_enabled = true`.
+O runner verifica esta flag antes de chamar o serviço. Caso desabilitada, a etapa é registrada como `skipped` no `job_steps`.
+
+### Filtros FFmpeg por Intensidade
+
+| Filtro | Leve | Médio | Forte |
+|---|---|---|---|
+| `curves=vintage` | ativo | ativo | ativo |
+| `noise=alls=N:allf=t+u` | N=8 | N=18 | N=30 |
+| `vignette=angle` | PI/6 | PI/4 | PI/3 |
+| `eq=saturation=S:contrast=C` | S=0.85, C=0.97 | S=0.65, C=0.93 | S=0.40, C=0.88 |
+
+### Comando FFmpeg (exemplo — intensidade Médio)
+
+```bash
+ffmpeg -i input.mp4 \
+  -vf "curves=vintage,noise=alls=18:allf=t+u,vignette=PI/4,eq=saturation=0.65:contrast=0.93" \
+  -c:v libx264 -crf 18 -c:a copy \
+  output_vintage.mp4
+```
+
+### Novos Arquivos
+
+| Arquivo | Descrição |
+|---|---|
+| `backend/app/services/video/effects.py` | Serviço com `apply_vintage_effect()` e `VintageIntensity` enum |
+| `pipeline/steps.py` (atualização) | Adiciona `VINTAGE_EFFECT` ao enum com `optional=True` |
+| `pipeline/state.py` (atualização) | Adiciona campo `vintage_video_path` ao `JobState` |
+| `pipeline/runner.py` (atualização) | Executa etapa condicionalmente baseado em `job_config.vintage_effect_enabled` |
+| `schemas/job.py` (atualização) | Adiciona `vintage_effect_enabled: bool` e `vintage_intensity: VintageIntensity` ao `JobConfig` |
+| `components/forms/VideoForm.vue` (atualização) | Adiciona toggle + seletor de intensidade na seção "Efeito Visual" |
+
+### Notas Técnicas
+
+- `curves=vintage` é preset nativo do FFmpeg — sem dependência extra
+- `noise=allf=t+u`: `t` = temporal (varia por frame), `u` = uniforme (constante por frame) — combinação mais realista
+- Áudio copiado sem re-encode (`-c:a copy`) — sem degradação de qualidade de áudio
+- CRF 18 = qualidade visual alta com compressão eficiente (0=sem perda, 51=máxima compressão)
+- Execução em `ProcessPoolExecutor` — operação CPU-bound que bloquearia o event loop
