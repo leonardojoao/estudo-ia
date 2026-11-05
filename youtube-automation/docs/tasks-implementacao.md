@@ -1,7 +1,7 @@
 # Tasks de Implementação — YouTube Automation
 
 > Documento gerado pelo Arquiteto. Cobre 100% dos arquivos da estrutura definida.
-> **65 tasks** organizadas em 6 fases. Cada task = 0.5 a 1 dia de trabalho.
+> **74 tasks** organizadas em 6 fases. Cada task = 0.5 a 1 dia de trabalho.
 > **NÃO é para implementar de uma vez** — siga a ordem das fases e dependências.
 
 ---
@@ -2471,3 +2471,510 @@ beforeEach(() => {
 - [ ] Mocks de API implementados com `vi.mock('../services/api')`
 - [ ] Sem chamadas reais à API nos testes (tudo mockado)
 - [ ] Cobertura das stores ≥ 80%
+
+---
+
+## Funcionalidade: Agendamento em Lote + Calendário de Publicações
+
+---
+
+### TASK-065 — Criar migration 003: tabela job_batches e campo batch_id
+
+**Módulo:** backend
+**Arquivo(s):** `backend/alembic/versions/003_job_batches.py`, `backend/app/models/job_batch.py`
+**US:** US-040
+**Depende de:** TASK-008
+**Produz para:** TASK-066, TASK-067, TASK-068
+
+#### O que criar
+
+**Model `JobBatch` (`app/models/job_batch.py`):**
+```python
+class JobBatch(Base):
+    __tablename__ = "job_batches"
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    name       = Column(Text, nullable=False)
+    total_jobs = Column(Integer, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    jobs       = relationship("ProcessingJob", back_populates="batch")
+```
+
+**Atualizar `ProcessingJob` (`app/models/job.py`):**
+```python
+batch_id = Column(Integer, ForeignKey("job_batches.id"), nullable=True, index=True)
+batch    = relationship("JobBatch", back_populates="jobs")
+```
+
+**Migration `003_job_batches.py`:**
+```sql
+CREATE TABLE job_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    total_jobs INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+ALTER TABLE processing_jobs ADD COLUMN batch_id INTEGER REFERENCES job_batches(id);
+CREATE INDEX idx_jobs_batch_id ON processing_jobs(batch_id);
+```
+
+#### Critérios de conclusão
+- [ ] `alembic upgrade head` aplica a migration sem erro
+- [ ] `alembic downgrade` reverte (drop index → drop column → drop table)
+- [ ] `ProcessingJob.batch` relationship funciona (eager ou lazy)
+- [ ] `batch_id = NULL` para jobs individuais (não obrigatório)
+
+#### Pontos de atenção
+- SQLite não suporta `ADD COLUMN ... REFERENCES` diretamente — usar `op.batch_alter_table` com Alembic `render_as_batch=True`
+
+---
+
+### TASK-066 — Criar schemas de batch e calendário
+
+**Módulo:** backend
+**Arquivo(s):** `backend/app/schemas/batch.py`
+**US:** US-040, US-041
+**Depende de:** TASK-009, TASK-065
+**Produz para:** TASK-067, TASK-068, TASK-069
+
+#### O que criar
+
+```python
+class BatchScheduleConfig(BaseModel):
+    start_date:   date
+    days_of_week: list[int]      # 0=Seg, 6=Dom; Field(min_length=1)
+    window_start: time           # ex: time(9, 0)
+    window_end:   time           # ex: time(21, 0)
+    timezone:     str = "UTC"
+
+    @model_validator(mode='after')
+    def validate_window(self):
+        if self.window_end <= self.window_start:
+            raise ValueError("window_end deve ser após window_start")
+        if not all(0 <= d <= 6 for d in self.days_of_week):
+            raise ValueError("dias devem estar entre 0 (Seg) e 6 (Dom)")
+        return self
+
+class BatchJobCreate(BaseModel):
+    name:         str
+    count:        int = Field(ge=1, le=50)
+    account_ids:  list[int] = Field(min_length=1)
+    job_template: JobConfig
+    schedule:     BatchScheduleConfig
+
+class BatchPreview(BaseModel):
+    slots: list[dict]   # [{ "index": 1, "scheduled_at": "2024-01-15T09:00:00Z" }]
+    total_days: int
+    first_date: date
+    last_date:  date
+
+class BatchDetail(BaseModel):
+    id:         int
+    name:       str
+    total_jobs: int
+    created_at: datetime
+    jobs:       list[JobResponse]
+
+class CalendarPublication(BaseModel):
+    job_id:          int
+    job_name:        str
+    scheduled_at:    datetime
+    status:          str
+    account_id:      int
+    account_name:    str
+    account_avatar:  str | None
+    youtube_url:     str | None
+    error_message:   str | None
+
+class CalendarDay(BaseModel):
+    date:         date
+    publications: list[CalendarPublication]
+
+class CalendarResponse(BaseModel):
+    days:               list[CalendarDay]
+    total_publications: int
+```
+
+#### Critérios de conclusão
+- [ ] `BatchScheduleConfig` rejeita janela inválida (end <= start) com mensagem descritiva
+- [ ] `BatchScheduleConfig` rejeita `count > 50`
+- [ ] `CalendarDay` com `publications=[]` para dias sem publicações (não omitir dias)
+- [ ] `CalendarResponse` cobre exatamente o intervalo `start_date..end_date`
+
+---
+
+### TASK-067 — Criar services/scheduler/distributor.py (algoritmo de slots)
+
+**Módulo:** backend
+**Arquivo(s):** `backend/app/services/scheduler/distributor.py`
+**US:** US-040
+**Depende de:** TASK-066
+**Produz para:** TASK-068
+
+#### O que criar
+
+```python
+from datetime import date, time, datetime, timedelta
+from zoneinfo import ZoneInfo
+
+def distribute_slots(
+    count: int,
+    start_date: date,
+    days_of_week: list[int],   # 0=Segunda, 6=Domingo (Python weekday())
+    window_start: time,
+    window_end: time,
+    timezone: str = "UTC",
+) -> list[datetime]:
+    """
+    Distribui `count` publicações em slots dentro da janela configurada.
+
+    ESTRATÉGIA:
+    1. Iterar dias a partir de start_date, incluir apenas os em days_of_week
+    2. Distribuir vídeos entre os dias de forma equilibrada:
+       - videos_per_day[i] = count // total_days + (1 if i < count % total_days else 0)
+    3. Para cada dia com N vídeos:
+       - Se N == 1: horário = window_start
+       - Se N > 1: intervalo = (window_end - window_start) / (N - 1)
+                   horários: window_start, +intervalo, ..., window_end
+    4. Converter cada datetime para UTC via ZoneInfo
+    5. Retornar lista ordenada cronologicamente
+
+    CASOS ESPECIAIS:
+    - Se slots disponíveis < count: continuar gerando mais dias até cobrir count
+    - Garantir que nenhum slot é no passado (validar no endpoint, não aqui)
+    """
+
+def preview_slots(config: BatchScheduleConfig, count: int) -> BatchPreview:
+    """Chama distribute_slots e monta BatchPreview para exibição no frontend."""
+
+def validate_slots_available(config: BatchScheduleConfig, count: int) -> tuple[bool, str]:
+    """
+    Verifica se a configuração é viável para o count desejado.
+    Retorna (válido, mensagem_de_erro).
+    """
+```
+
+#### Critérios de conclusão
+- [ ] `distribute_slots(10, ..., [0,1,2,3,4], ...)` distribui em Mon-Fri (2 vídeos nos primeiros 5 dias)
+- [ ] `distribute_slots(7, ..., [0,2,4], ...)` distribui em Seg/Qua/Sex: [3, 2, 2]
+- [ ] Horários dentro da janela nunca ultrapassam `window_end`
+- [ ] Slots convertidos corretamente para UTC (verificar DST se timezone com horário de verão)
+- [ ] `validate_slots_available` retorna erro descritivo com sugestões quando inviável
+
+#### Pontos de atenção
+- Usar `zoneinfo.ZoneInfo` (Python 3.9+) em vez de `pytz` — sem dependência extra
+- Se `window_start == window_end`, todos os slots no mesmo horário — não é erro, mas deve ser documentado
+
+---
+
+### TASK-068 — Atualizar api/routes/jobs.py com endpoints de batch
+
+**Módulo:** backend
+**Arquivo(s):** `backend/app/api/routes/jobs.py` (atualização)
+**US:** US-040
+**Depende de:** TASK-036, TASK-066, TASK-067
+**Produz para:** TASK-071 (frontend consome)
+
+#### O que criar
+
+Adicionar aos endpoints existentes de jobs:
+
+```
+POST /api/jobs/batch
+  body: BatchJobCreate
+  response: { batch_id, jobs_created: N, schedule: [{ job_id, scheduled_at }] }
+  → 1. Valida slots com validate_slots_available
+  → 2. Chama distribute_slots → lista de datetimes
+  → 3. Cria JobBatch no banco
+  → 4. Para cada slot: cria ProcessingJob com scheduled_at e batch_id
+  → 5. Cada job inicia pipeline em background com APScheduler
+  → 6. Retorna batch criado
+
+GET /api/jobs/batch/{batch_id}
+  → retorna BatchDetail (info do lote + lista de jobs com status atual)
+
+DELETE /api/jobs/batch/{batch_id}
+  → cancela todos os jobs do lote que ainda não iniciaram (status=pending|scheduled)
+
+POST /api/jobs/batch/preview
+  body: { count, schedule: BatchScheduleConfig }
+  response: BatchPreview
+  → retorna a lista de slots sem criar nada (para preview antes de confirmar)
+```
+
+#### Critérios de conclusão
+- [ ] `POST /api/jobs/batch` cria exatamente `count` jobs vinculados ao mesmo `batch_id`
+- [ ] `POST /api/jobs/batch/preview` retorna slots sem persistir no banco
+- [ ] `DELETE /api/jobs/batch/{id}` cancela apenas jobs `pending` ou `scheduled` (não interrompe jobs `running`)
+- [ ] Jobs do lote agendados via APScheduler com `scheduled_at` correto em UTC
+- [ ] Endpoint retorna 422 com erro descritivo se slots insuficientes
+
+---
+
+### TASK-069 — Criar api/routes/calendar.py
+
+**Módulo:** backend
+**Arquivo(s):** `backend/app/api/routes/calendar.py`
+**US:** US-041, US-042
+**Depende de:** TASK-066, TASK-010
+**Produz para:** TASK-072 (frontend consome)
+
+#### O que criar
+
+```
+GET /api/calendar?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&account_ids=1,2,3
+```
+
+Lógica:
+1. Query em `processing_jobs` onde `scheduled_at BETWEEN start_date AND end_date`
+2. Filtrar por `account_ids` se fornecido (via `job_accounts`)
+3. Agrupar por dia: `{ "2024-01-15": [pub1, pub2, ...] }`
+4. Incluir dias sem publicações como lista vazia (para o calendário renderizar todos os dias do mês)
+5. Montar `CalendarResponse`
+
+Constraints:
+- Intervalo máximo: 31 dias (proteger contra queries pesadas)
+- `account_ids` como query param: `?account_ids=1&account_ids=2` ou `?account_ids=1,2`
+
+Registrar no `main.py`:
+```python
+app.include_router(calendar_router, prefix="/api")
+```
+
+#### Critérios de conclusão
+- [ ] Retorna todos os dias do intervalo, mesmo sem publicações
+- [ ] `account_ids` vazio = retorna todos os canais
+- [ ] Intervalo > 31 dias retorna HTTP 422 com mensagem descritiva
+- [ ] `youtube_url` preenchido apenas quando `status = completed` E `youtube_urls` no job
+- [ ] Performance: query com JOIN otimizado (não N+1)
+
+---
+
+### TASK-070 — Criar stores/calendar.ts (Pinia)
+
+**Módulo:** frontend
+**Arquivo(s):** `frontend/src/stores/calendar.ts`
+**US:** US-041, US-042
+**Depende de:** TASK-016, TASK-062
+**Produz para:** TASK-073
+
+#### O que criar
+
+```typescript
+export const useCalendarStore = defineStore('calendar', () => {
+  const currentMonth = ref(new Date())
+  const calendarData  = ref<CalendarResponse | null>(null)
+  const selectedDay   = ref<CalendarDay | null>(null)
+  const selectedAccountIds = ref<number[]>([])  // [] = todos
+  const loading       = ref(false)
+
+  // Carrega dados do mês atual filtrados pelos canais selecionados
+  async function loadMonth(year: number, month: number): Promise<void> { ... }
+
+  // Navegação
+  function nextMonth(): void { currentMonth.value = addMonths(currentMonth.value, 1) }
+  function prevMonth(): void { currentMonth.value = addMonths(currentMonth.value, -1) }
+
+  // Filtro client-side por canal
+  const filteredDays = computed<CalendarDay[]>(() => {
+    if (!calendarData.value) return []
+    if (selectedAccountIds.value.length === 0) return calendarData.value.days
+    return calendarData.value.days.map(day => ({
+      ...day,
+      publications: day.publications.filter(
+        p => selectedAccountIds.value.includes(p.account_id)
+      )
+    }))
+  })
+
+  // Total de publicações no mês filtrado
+  const totalFiltered = computed(() =>
+    filteredDays.value.reduce((sum, d) => sum + d.publications.length, 0)
+  )
+
+  return {
+    currentMonth, calendarData, selectedDay,
+    selectedAccountIds, loading,
+    filteredDays, totalFiltered,
+    loadMonth, nextMonth, prevMonth
+  }
+})
+```
+
+**Adicionar ao `src/services/api.ts`:**
+```typescript
+export const calendarApi = {
+  getMonth: (startDate: string, endDate: string, accountIds?: number[]) => ...
+}
+export const batchApi = {
+  preview:  (count: number, schedule: BatchScheduleConfig) => ...,
+  create:   (data: BatchJobCreate) => ...,
+  get:      (batchId: number) => ...,
+  cancel:   (batchId: number) => ...,
+}
+```
+
+#### Critérios de conclusão
+- [ ] `loadMonth` chama `GET /api/calendar` com `start_date` = 1º do mês e `end_date` = último do mês
+- [ ] `filteredDays` refiltra client-side sem nova requisição ao mudar `selectedAccountIds`
+- [ ] `nextMonth`/`prevMonth` trigam `loadMonth` automaticamente
+- [ ] `selectedDay` atualizado ao clicar em um dia no calendário
+
+---
+
+### TASK-071 — Criar BatchScheduleForm.vue
+
+**Módulo:** frontend
+**Arquivo(s):** `frontend/src/components/forms/BatchScheduleForm.vue`
+**US:** US-040
+**Depende de:** TASK-016, TASK-041
+**Produz para:** TASK-074 (BatchJobView usa)
+
+#### O que criar
+
+Formulário de configuração do lote com:
+
+1. **Quantidade de vídeos:** campo numérico (1-50)
+2. **Configuração de agendamento:**
+   - Date picker para data de início
+   - Checkboxes dos dias da semana (Seg/Ter/Qua/Qui/Sex/Sáb/Dom), estilo pill/badge
+   - Time pickers para início e fim da janela
+   - Select de fuso horário (lista filtrada: fusos das Américas, Europa, Ásia)
+3. **Preview automático:** ao alterar qualquer parâmetro, debounce de 500ms chama `POST /api/jobs/batch/preview` e exibe tabela com slots gerados:
+   ```
+   Vídeo 1 → Seg, 15 Jan • 09:00
+   Vídeo 2 → Seg, 15 Jan • 15:00
+   Vídeo 3 → Ter, 16 Jan • 09:00
+   ...
+   ```
+4. **Mensagem de erro** se slots insuficientes (ex: "Apenas 8 slots disponíveis para 10 vídeos. Amplie a janela ou selecione mais dias.")
+
+#### Critérios de conclusão
+- [ ] Preview atualizado automaticamente com debounce de 500ms
+- [ ] Erro de validação exibido inline (não alert)
+- [ ] "Todos os dias úteis" (Seg-Sex) como preset rápido
+- [ ] Emite `@update:modelValue` com o `BatchScheduleConfig` completo quando válido
+
+---
+
+### TASK-072 — Criar CalendarView.vue e componentes de calendário
+
+**Módulo:** frontend
+**Arquivo(s):** `frontend/src/views/CalendarView.vue`, `frontend/src/components/calendar/`
+**US:** US-041, US-042
+**Depende de:** TASK-070, TASK-015
+**Produz para:** —
+
+#### O que criar
+
+**`CalendarMonth.vue`** — grid CSS 7×N com os dias do mês:
+- Cabeçalho: Seg | Ter | Qua | Qui | Sex | Sáb | Dom
+- Cada célula: número do dia + badges coloridos por canal (máx 3 visíveis + "+N mais")
+- Dia com publicações: fundo levemente destacado
+- Dia selecionado: borda colorida
+- Dias do mês anterior/seguinte: opacidade reduzida
+
+**`CalendarDay.vue`** — célula individual:
+- Props: `date`, `publications: CalendarPublication[]`, `isSelected`
+- Badges: cor do canal (derivada do `account_id` via hash de cor consistente)
+- Emite `@click` com o dia
+
+**`PublicationList.vue`** — painel lateral deslizante:
+- Aparece ao clicar em um dia
+- Lista de cards por publicação: avatar do canal, título, horário, badge de status
+- Link "Abrir no YouTube" quando disponível
+- Fechar ao clicar fora ou no X
+
+**`ChannelFilter.vue`** — barra de filtros:
+- Linha horizontal com checkbox+avatar de cada canal
+- Toggle "Todos" que seleciona/deseleciona todos
+
+**`CalendarView.vue`** — view principal:
+```vue
+<template>
+  <div class="flex gap-4">
+    <div class="flex-1">
+      <CalendarHeader />      <!-- mês/ano + setas de navegação -->
+      <ChannelFilter />       <!-- filtros de canal -->
+      <CalendarMonth />       <!-- grid -->
+    </div>
+    <PublicationList />       <!-- painel lateral (v-if selectedDay) -->
+  </div>
+</template>
+```
+
+**Atualizar `router/index.ts`:**
+```typescript
+{ path: '/calendar', component: () => import('../views/CalendarView.vue') }
+```
+
+**Atualizar `App.vue`:**
+- Adicionar link "Calendário" com ícone de calendário na nav
+
+#### Critérios de conclusão
+- [ ] Navegação entre meses carrega novos dados sem reload da página
+- [ ] Clicar em um dia abre `PublicationList` com as publicações daquele dia
+- [ ] `ChannelFilter` filtra instantaneamente sem nova requisição
+- [ ] Badges coloridos por canal (cor gerada via hash do `account_id`)
+- [ ] Responsivo: em mobile, `PublicationList` ocupa a tela toda
+
+---
+
+### TASK-073 — Criar BatchJobView.vue (tela de criação de lote)
+
+**Módulo:** frontend
+**Arquivo(s):** `frontend/src/views/BatchJobView.vue`
+**US:** US-040
+**Depende de:** TASK-051, TASK-071, TASK-042
+**Produz para:** —
+
+#### O que criar
+
+View acessível em `/jobs/batch` para criar um lote de vídeos com agendamento automático.
+
+**Estrutura em 3 seções:**
+
+1. **Configuração base do vídeo** (igual ao NewJobView, sem step de texto individual):
+   - Seleção de contas (multi-select)
+   - Configuração de áudio (voz, duração alvo)
+   - Configuração de vídeo (pasta, dimensão, vintage)
+   - Configuração de metadados (prompts de título e descrição)
+   - Prompt base para geração de texto (os N textos serão gerados pelo pipeline de cada job)
+
+2. **Configuração do lote** (`BatchScheduleForm`):
+   - Quantidade de vídeos
+   - Janela de agendamento + dias
+   - Preview da distribuição
+
+3. **Resumo e confirmação:**
+   - Card resumindo: N vídeos, datas de início e fim, contas selecionadas
+   - Botão "Criar Lote" → chama `POST /api/jobs/batch` e redireciona para `/calendar`
+
+**Atualizar `App.vue` / `DashboardView.vue`:**
+- Botão "Novo Lote" ao lado de "Novo Processamento" no dashboard
+
+**Atualizar `router/index.ts`:**
+```typescript
+{ path: '/jobs/batch', component: () => import('../views/BatchJobView.vue') }
+```
+
+#### Critérios de conclusão
+- [ ] Redireciona para `/calendar` após criação bem-sucedida do lote
+- [ ] Errors da API exibidos inline (não alert)
+- [ ] "Criar Lote" desabilitado enquanto preview está carregando ou tem erro
+- [ ] Estado não perdido ao navegar entre as seções
+
+---
+
+## Atualização da Tabela de Rastreabilidade
+
+| Task | US | Arquivo Principal | Fase |
+|---|---|---|---|
+| TASK-065 | US-040 | `alembic/versions/003_job_batches.py` + `models/job_batch.py` | 1 |
+| TASK-066 | US-040, US-041 | `schemas/batch.py` | 1 |
+| TASK-067 | US-040 | `services/scheduler/distributor.py` | 2 |
+| TASK-068 | US-040 | `api/routes/jobs.py` (atualização — batch endpoints) | 5 |
+| TASK-069 | US-041, US-042 | `api/routes/calendar.py` | 5 |
+| TASK-070 | US-041, US-042 | `stores/calendar.ts` | 6 |
+| TASK-071 | US-040 | `components/forms/BatchScheduleForm.vue` | 6 |
+| TASK-072 | US-041, US-042 | `CalendarView.vue` + `components/calendar/` | 6 |
+| TASK-073 | US-040 | `BatchJobView.vue` | 6 |

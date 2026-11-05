@@ -428,3 +428,66 @@
 **Prioridade:** Should | **Estimativa:** M
 **Épico:** E6 (Processamento de Vídeo)
 **Notas:** Efeito implementado via filtergraph do FFmpeg — sem dependência de biblioteca externa adicional. Filtros: sépia/tom quente (`curves=vintage`), granulação de filme (`noise`), vinheta (`vignette`), dessaturação (`eq`).
+
+
+---
+
+## Funcionalidade: Agendamento em Lote + Calendário de Publicações
+
+### US-040 — Criar lote de vídeos com distribuição automática de agendamento
+
+**Como** Pedro (criador de conteúdo),
+**Eu quero** criar N vídeos de uma vez e definir uma janela de horário e dias da semana para publicação automática,
+**Para que** o sistema distribua as publicações ao longo dos dias sem que eu configure cada vídeo manualmente.
+
+**Critérios de Aceitação:**
+- [ ] Campo numérico para definir a quantidade de vídeos do lote (1-50)
+- [ ] Seletor de data de início do agendamento
+- [ ] Checkboxes para dias da semana (Seg a Dom), ao menos 1 deve ser selecionado
+- [ ] Seletor de janela de horário: hora de início e hora de fim (ex: 09:00 às 21:00)
+- [ ] Seletor de fuso horário (padrão: fuso do sistema)
+- [ ] Preview da distribuição antes de confirmar: tabela mostrando data, horário e "Vídeo N" para cada slot gerado
+- [ ] Validação: se os slots disponíveis forem insuficientes para N vídeos, exibir erro com sugestão (ampliar janela ou selecionar mais dias)
+- [ ] Ao confirmar, N jobs são criados com `scheduled_at` definido e vinculados em um `batch`
+- [ ] Lote aparece no dashboard agrupado ou listado individualmente com indicador de que pertence ao mesmo lote
+
+**Prioridade:** Should | **Estimativa:** G
+**Épico:** E8 (Metadados e Upload)
+
+---
+
+### US-041 — Visualizar calendário mensal de publicações
+
+**Como** Ana (gestora de canais),
+**Eu quero** ver um calendário mensal com todas as publicações agendadas e realizadas,
+**Para que** eu tenha visibilidade da programação de conteúdo de todos os canais.
+
+**Critérios de Aceitação:**
+- [ ] Aba "Calendário" acessível pelo menu de navegação principal
+- [ ] Calendário mensal navegável (botões mês anterior / próximo)
+- [ ] Cada dia exibe badges coloridos com o número de publicações (por canal)
+- [ ] Clicar em um dia abre painel lateral com a lista detalhada das publicações do dia
+- [ ] Cada publicação mostra: título, canal, horário, status (agendado/publicado/erro)
+- [ ] Link direto para o vídeo no YouTube quando status = publicado
+- [ ] Publicações com erro exibem mensagem resumida do erro
+
+**Prioridade:** Should | **Estimativa:** M
+**Épico:** E9 (Interface Vue)
+
+---
+
+### US-042 — Filtrar calendário por canal
+
+**Como** Ana,
+**Eu quero** filtrar o calendário para ver apenas publicações de canais específicos,
+**Para que** eu visualize a programação de um canal sem o ruído dos outros.
+
+**Critérios de Aceitação:**
+- [ ] Painel de filtro na lateral do calendário com avatar e nome de cada canal conectado
+- [ ] Opção "Todos os canais" selecionada por padrão
+- [ ] Checkboxes por canal: desmarcar oculta as publicações daquele canal no calendário
+- [ ] Filtro aplicado instantaneamente (client-side, sem nova requisição)
+- [ ] Estado do filtro persistido durante a sessão (não resetar ao navegar)
+
+**Prioridade:** Could | **Estimativa:** P
+**Épico:** E9 (Interface Vue)

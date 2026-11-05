@@ -658,3 +658,136 @@ ffmpeg -i input.mp4 \
 - Áudio copiado sem re-encode (`-c:a copy`) — sem degradação de qualidade de áudio
 - CRF 18 = qualidade visual alta com compressão eficiente (0=sem perda, 51=máxima compressão)
 - Execução em `ProcessPoolExecutor` — operação CPU-bound que bloquearia o event loop
+
+
+---
+
+## Funcionalidade: Agendamento em Lote + Calendário
+
+### Novo modelo de dados
+
+```sql
+-- Lote de jobs criados juntos
+CREATE TABLE job_batches (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    total_jobs  INTEGER NOT NULL,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Adicionar FK na tabela existente
+ALTER TABLE processing_jobs ADD COLUMN batch_id INTEGER REFERENCES job_batches(id);
+CREATE INDEX idx_jobs_batch_id ON processing_jobs(batch_id);
+```
+
+### Algoritmo de Distribuição de Slots
+
+```
+ENTRADA:
+  count          : int   (número de vídeos)
+  start_date     : date  (data de início)
+  days_of_week   : list[int]  (0=Segunda, 6=Domingo)
+  window_start   : time  (ex: 09:00)
+  window_end     : time  (ex: 21:00)
+  timezone       : str   (ex: "America/Sao_Paulo")
+
+SAÍDA: list[datetime] com exatamente `count` datetimes em UTC
+
+ALGORITMO:
+1. Gerar dias disponíveis: iterar a partir de start_date, incluir apenas os que estão em days_of_week
+2. Calcular videos_per_day: distribuir `count` entre os dias disponíveis de forma equilibrada
+   - Ex: 10 vídeos, 3 dias → [4, 3, 3]  (round-robin decrescente)
+3. Para cada dia, calcular horários dentro da janela:
+   - Se 1 vídeo no dia: horário = window_start
+   - Se N vídeos no dia: interval = (window_end - window_start) / (N - 1)
+     → horários: window_start, window_start+interval, ..., window_end
+4. Converter cada datetime para UTC usando o timezone fornecido
+5. Retornar a lista ordenada cronologicamente
+```
+
+### Novos Endpoints
+
+```
+POST /api/jobs/batch
+  body: BatchJobCreate (count, account_ids, job_template, schedule_config)
+  response: { batch_id, jobs: [Job], schedule: [{ job_id, scheduled_at }] }
+
+GET /api/calendar?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&account_ids=1,2
+  response: CalendarResponse (lista de CalendarDay com publicações)
+
+GET /api/jobs/batch/{batch_id}
+  response: BatchDetail (jobs do lote + progresso agregado)
+
+DELETE /api/jobs/batch/{batch_id}
+  → cancela todos os jobs pendentes do lote
+```
+
+### Schemas
+
+```python
+class BatchScheduleConfig(BaseModel):
+    start_date: date
+    days_of_week: list[int]    # 0=Seg, 6=Dom; min 1 dia
+    window_start: time         # ex: time(9, 0)
+    window_end: time           # ex: time(21, 0)
+    timezone: str = "UTC"      # ex: "America/Sao_Paulo"
+
+class BatchJobCreate(BaseModel):
+    name: str
+    count: int                 # 1-50
+    account_ids: list[int]
+    job_template: JobConfig    # config base (sem text e scheduled_at)
+    schedule: BatchScheduleConfig
+
+class CalendarPublication(BaseModel):
+    job_id: int
+    job_name: str
+    scheduled_at: datetime
+    status: JobStatus
+    account_id: int
+    account_name: str
+    account_avatar_url: str | None
+    youtube_url: str | None
+    error_message: str | None
+
+class CalendarDay(BaseModel):
+    date: date
+    publications: list[CalendarPublication]
+
+class CalendarResponse(BaseModel):
+    days: list[CalendarDay]
+    total_publications: int
+```
+
+### Estrutura de novos arquivos
+
+```
+backend/app/
+├── services/
+│   └── scheduler/
+│       ├── __init__.py
+│       ├── distributor.py    # algoritmo de distribuição de slots
+│       └── schemas.py        # BatchScheduleConfig, SlotDistribution
+├── models/
+│   └── job_batch.py          # Model JobBatch
+├── schemas/
+│   └── batch.py              # BatchJobCreate, BatchDetail, CalendarResponse
+└── api/routes/
+    ├── jobs.py               # atualizar: POST /api/jobs/batch + batch endpoints
+    └── calendar.py           # GET /api/calendar
+
+frontend/src/
+├── views/
+│   └── CalendarView.vue      # nova aba de calendário
+├── components/
+│   └── calendar/
+│       ├── CalendarMonth.vue      # grid mensal
+│       ├── CalendarDay.vue        # célula do dia com badges
+│       ├── PublicationList.vue    # painel lateral com lista do dia
+│       └── ChannelFilter.vue      # filtro por canal
+├── components/forms/
+│   └── BatchScheduleForm.vue      # formulário de configuração do lote
+├── stores/
+│   └── calendar.ts           # Pinia store para dados do calendário
+└── router/index.ts           # adicionar rota /calendar
+```
