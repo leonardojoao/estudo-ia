@@ -1,7 +1,7 @@
 # Tasks de Implementação — YouTube Automation
 
 > Documento gerado pelo Arquiteto. Cobre 100% dos arquivos da estrutura definida.
-> **74 tasks** organizadas em 6 fases. Cada task = 0.5 a 1 dia de trabalho.
+> **76 tasks** organizadas em 6 fases. Cada task = 0.5 a 1 dia de trabalho.
 > **NÃO é para implementar de uma vez** — siga a ordem das fases e dependências.
 
 ---
@@ -310,6 +310,15 @@ Método de classe `get(db, key, default=None)` e `set(db, key, value)`.
 - `JobCreate` (config completa), `JobResponse`, `JobListResponse`
 - `JobStepResponse`, `StepExecuteRequest`
 - `JobConfig` (sub-schema com toda a configuração de um job)
+  - Incluir campos opcionais de conteúdo pré-gerado:
+    ```python
+    # Conteúdo pré-gerado no wizard (pula as etapas correspondentes no pipeline)
+    pre_generated_text:              str | None = None
+    pre_generated_audio_path:        str | None = None
+    pre_generated_audio_duration:    float | None = None
+    pre_generated_title:             str | None = None
+    pre_generated_description:       str | None = None
+    ```
 
 **schemas/settings.py:**
 - `SettingsResponse` (key-value dict), `SettingsUpdate`
@@ -565,6 +574,9 @@ export const jobsApi = { list, create, get, delete, run, runStep, getStepOutput 
 export const ollamaApi = { getModels, getVoices }
 export const textGenerationApi = { generate, generateBatch }   // TASK-059
 export const audioApi = { generate, getPreviewUrl, getVoices } // TASK-060
+export const metadataApi = { generate }                        // TASK-074
+export const calendarApi = { getMonth }                        // TASK-070
+export const batchApi = { preview, create, get, cancel }       // TASK-068
 ```
 
 #### Critérios de conclusão
@@ -1217,6 +1229,7 @@ async def test_token(account: YouTubeAccount, settings: Settings) -> bool:
 - Google Cloud Console deve ter este URI cadastrado como redirect autorizado
 - **CSRF state storage:** gerar um UUID como `state` ao criar a URL OAuth → salvar em nova tabela `oauth_states(state_token TEXT, expires_at DATETIME)` com TTL de 10 min → validar e deletar no callback. Sem esse storage, a validação CSRF não pode ser implementada
 - **SECRET_KEY rotation:** se a chave mudar, `decrypt()` lança `InvalidToken`. Tratar separadamente de token OAuth inválido → retornar status `"credentials_corrupted"` → UI exibe "Reconecte a conta" (diferente de "Token expirado")
+- **`frontend_url` configurável:** o backend precisa de `settings.frontend_url` para redirecionar após OAuth. Adicionar ao `Settings`: `frontend_url: str = "http://localhost:5173"`. O callback usa `f"{settings.frontend_url}/accounts?connected=true"` — nunca hardcode
 
 ---
 
@@ -1497,10 +1510,13 @@ async def run_single_step(
 - [ ] Job cancelado (`status=cancelled`) interrompe o pipeline graciosamente
 - [ ] `run_pipeline` executado em background task (não bloqueia o endpoint)
 - [ ] Cada etapa tem seu `JobStep` salvo com `started_at` e `completed_at`
-- [ ] **Limpeza de temporários no `finally`:** runner registra todos os paths temporários criados no `JobState.temp_paths` e executa `shutil.rmtree` no bloco `finally`, independentemente de sucesso ou falha
-- [ ] **Verificação de disco antes de iniciar:** estimar espaço necessário (duração_audio × bitrate_estimado × 3) e verificar disponível via `shutil.disk_usage`. Falhar imediatamente com mensagem clara se insuficiente
-- [ ] **Progresso calculado dinamicamente:** filtrar steps `skipped` antes de somar pesos — garante que barra sempre chegue a 100% independentemente de steps opcionais (vintage) estarem ativados ou não
-- [ ] **Concorrência limitada:** máximo `settings.max_concurrent_jobs` (default: 2) jobs em paralelo. Job aguarda em fila se limite atingido
+- [ ] Limpeza de temporários no `finally`: runner registra todos os paths temporários criados no `JobState.temp_paths` e executa `shutil.rmtree` no bloco `finally`, independentemente de sucesso ou falha
+- [ ] Verificação de disco antes de iniciar: estimar espaço necessário (duração_audio × bitrate_estimado × 3) e verificar disponível via `shutil.disk_usage`. Falhar imediatamente com mensagem clara se insuficiente
+- [ ] Progresso calculado dinamicamente: filtrar steps `skipped` antes de somar pesos — garante que barra sempre chegue a 100% independentemente de steps opcionais (vintage) estarem ativados ou não
+- [ ] Concorrência limitada: máximo `settings.max_concurrent_jobs` (default: 2) jobs em paralelo. Job aguarda em fila se limite atingido
+- [ ] **Conteúdo pré-gerado:** runner verifica `job_config.pre_generated_text` — se preenchido, pula `text_generation` e usa o valor diretamente no `JobState`. Mesmo para `pre_generated_audio_path` (pula `audio_generation` + `audio_verification`), `pre_generated_title` e `pre_generated_description` (pula geração de metadados)
+- [ ] **`run_single_step` com pré-condições:** antes de executar etapa isolada, verificar `STEP_PREREQUISITES` — se inputs obrigatórios ausentes do `JobState`, retornar HTTP 422 com mensagem: `"Esta etapa requer: audio_path (execute audio_generation primeiro)"`
+- [ ] **APScheduler + sessão:** função agendada recebe apenas `job_id: int` e cria sua própria sessão: `async with SessionLocal() as db: await run_pipeline(job_id, db, get_settings())`
 
 ---
 
@@ -2746,6 +2762,7 @@ app.include_router(calendar_router, prefix="/api")
 - [ ] Intervalo > 31 dias retorna HTTP 422 com mensagem descritiva
 - [ ] `youtube_url` preenchido apenas quando `status = completed` E `youtube_urls` no job
 - [ ] Performance: query com JOIN otimizado (não N+1)
+- [ ] **Jobs "publicar agora" incluídos:** query usa `COALESCE(scheduled_at, completed_at)` como campo de data. Jobs com `scheduled_at = NULL` e `status = completed` aparecem na data de `completed_at`. Jobs com `scheduled_at = NULL` e `status != completed` aparecem na data de `created_at` (agendamento implícito)
 
 ---
 
@@ -2978,3 +2995,97 @@ View acessível em `/jobs/batch` para criar um lote de vídeos com agendamento a
 | TASK-071 | US-040 | `components/forms/BatchScheduleForm.vue` | 6 |
 | TASK-072 | US-041, US-042 | `CalendarView.vue` + `components/calendar/` | 6 |
 | TASK-073 | US-040 | `BatchJobView.vue` | 6 |
+
+---
+
+## Correções da Análise de Fluxo
+
+---
+
+### TASK-074 — Criar api/routes/metadata.py (preview de metadados no wizard)
+
+**Módulo:** backend
+**Arquivo(s):** `backend/app/api/routes/metadata.py`
+**US:** US-027, US-028
+**Depende de:** TASK-031, TASK-010
+**Produz para:** TASK-053 (Step 5 do wizard chama este endpoint)
+
+#### O que criar
+
+Endpoint de geração de metadados sob demanda, sem criar job:
+
+```
+POST /api/metadata/generate
+  body: {
+    text: str,                  # texto da narração (pré-gerado)
+    model: str,
+    title_prompt: str | None,
+    description_prompt: str | None,
+    tags_prompt: str | None
+  }
+  response: {
+    title: str,                 # ≤ 100 chars
+    description: str,           # ≤ 5000 chars
+    tags: list[str]             # 5-10 tags
+  }
+```
+
+Reutiliza `services/metadata/generator.py` (TASK-031) e `services/text_generation/ollama_generator.py` (TASK-018).
+
+Registrar em `main.py`:
+```python
+app.include_router(metadata_router, prefix="/api")
+```
+
+#### Critérios de conclusão
+- [ ] Endpoint retorna `{ title, description, tags }` com Ollama disponível
+- [ ] Retorna HTTP 503 com mensagem clara se Ollama offline
+- [ ] `title` sempre ≤ 100 chars, `description` ≤ 5000 chars (truncado se necessário)
+- [ ] Cada geração (título, descrição, tags) pode ser feita independentemente via query param `?fields=title,tags`
+- [ ] Adicionado ao `src/services/api.ts` como `metadataApi.generate(...)`
+
+---
+
+### TASK-075 — Atualizar src/types/index.ts com campos pré-gerados e frontend_url
+
+**Módulo:** frontend + backend
+**Arquivo(s):** `frontend/src/types/index.ts`, `backend/app/core/config.py`
+**US:** US-013, US-017, US-027
+**Depende de:** TASK-062, TASK-002
+**Produz para:** TASK-053, TASK-073
+
+#### O que criar
+
+**`frontend/src/types/index.ts` — atualizar `JobConfig`:**
+```typescript
+export interface JobConfig {
+  // ... campos existentes ...
+
+  // Conteúdo pré-gerado no wizard (pula etapas correspondentes no pipeline)
+  pre_generated_text?:           string
+  pre_generated_audio_path?:     string
+  pre_generated_audio_duration?: number
+  pre_generated_title?:          string
+  pre_generated_description?:    string
+}
+```
+
+**`backend/app/core/config.py` — adicionar `frontend_url`:**
+```python
+class Settings(BaseSettings):
+    # ... campos existentes ...
+    frontend_url: str = "http://localhost:5173"   # usado no redirect OAuth
+```
+
+**`backend/app/api/routes/accounts.py` — usar `settings.frontend_url`:**
+```python
+# No callback OAuth:
+redirect_url = f"{settings.frontend_url}/accounts?connected=true"
+return RedirectResponse(url=redirect_url)
+```
+
+#### Critérios de conclusão
+- [ ] `JobConfig.pre_generated_text` e demais campos opcionais no TypeScript
+- [ ] Backend `JobConfig` Pydantic com mesmos campos opcionais (`str | None = None`)
+- [ ] OAuth callback usa `settings.frontend_url` (nunca string literal)
+- [ ] `FRONTEND_URL` adicionado ao `.env.example`
