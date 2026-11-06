@@ -1464,9 +1464,9 @@ class JobState(BaseModel):
 ```
 
 #### Critérios de conclusão
-- [ ] `JobState` serializável para JSON (para persistir no `job_steps.output`)
-- [ ] `to_step_input` retorna apenas os dados necessários para a etapa especificada
-- [ ] `STEP_METADATA` pesos somam 100 (para cálculo correto de progress%)
+- [x] `JobState` serializável para JSON (para persistir no `job_steps.output`)
+- [x] `to_step_input` retorna apenas os dados necessários para a etapa especificada
+- [x] `STEP_METADATA` pesos somam 100 (para cálculo correto de progress%)
 
 ---
 
