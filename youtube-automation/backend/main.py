@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.db.database import SessionLocal, engine
 from app.api.routes.settings import router as settings_router
+from app.api.routes.ollama import router as ollama_router
 from app.models.job import ProcessingJob
 
 _migrations_applied = False
@@ -74,6 +75,7 @@ app.add_middleware(
 )
 register_exception_handlers(app)
 app.include_router(settings_router, prefix="/api")
+app.include_router(ollama_router, prefix="/api")
 
 
 @app.get("/health", tags=["system"])
