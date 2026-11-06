@@ -1407,10 +1407,10 @@ Formato padrão do evento:
 ```
 
 #### Critérios de conclusão
-- [ ] Múltiplos subscribers recebem o mesmo evento (fan-out)
-- [ ] Subscribe com `job_id=None` recebe eventos de todos os jobs
-- [ ] Queue tem maxsize=100 (descarta eventos antigos se subscriber lento)
-- [ ] Unsubscribe limpa a queue do subscriber
+- [x] Múltiplos subscribers recebem o mesmo evento (fan-out)
+- [x] Subscribe com `job_id=None` recebe eventos de todos os jobs
+- [x] Queue tem maxsize=100 (descarta eventos antigos se subscriber lento)
+- [x] Unsubscribe limpa a queue do subscriber
 
 ---
 
