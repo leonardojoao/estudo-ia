@@ -15,11 +15,10 @@ O backend executável está disponível e pode ser iniciado com Docker:
 - FFmpeg dentro da imagem;
 - testes, lint e health check.
 
-O frontend Vue ainda está em construção. Atualmente o repositório contém a
-configuração Docker/Nginx do frontend, mas ainda não contém `package.json` nem
-os arquivos da aplicação Vue. Por isso, a instalação recomendada neste momento
-é o backend isolado. O perfil completo será habilitado quando o código do
-frontend for adicionado.
+O frontend Vue possui a base Creator Studio executável, com Dashboard,
+Configurações, navegação, integração inicial com o backend e build Docker. As
+integrações de contas YouTube, jobs, calendário, pipeline, OAuth, upload e SSE
+continuam sendo implementadas nas próximas fases.
 
 ## Sumário
 
@@ -386,8 +385,8 @@ O Compose de desenvolvimento monta o código do backend e habilita reload:
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build backend
 ```
 
-O frontend ainda não possui os arquivos-fonte necessários para executar o
-Vite. Quando ele estiver disponível, o comando de desenvolvimento completo será:
+O frontend possui os arquivos-fonte necessários para executar o Vite. O comando
+de desenvolvimento completo é:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
@@ -591,15 +590,14 @@ baseline compatível. Não remova o volume do banco sem fazer backup.
 
 ### O frontend não compila
 
-No estado atual do repositório, o frontend não contém `package.json` nem código
-Vue. Portanto, `docker compose up` sem especificar `backend` pode falhar ao
-tentar construir o serviço `frontend`. Use:
+Confirme que `frontend/package-lock.json` está presente e que a instalação foi
+feita com `npm ci` dentro do container. Para reconstruir sem cache:
 
 ```bash
-docker compose up -d --build backend
+docker compose build --no-cache frontend
+docker compose up -d frontend
+docker compose logs frontend
 ```
-
-até que a implementação do frontend seja adicionada.
 
 ## Estrutura do projeto
 
@@ -616,7 +614,7 @@ youtube-automation/
 │   ├── tests/                # Testes automatizados
 │   ├── Dockerfile
 │   └── requirements.txt
-├── frontend/                 # Configuração preparada; Vue em construção
+├── frontend/                 # Vue 3 + Vite + shell Creator Studio
 ├── docs/                     # Especificações e plano de testes
 ├── scripts/                  # Scripts auxiliares
 ├── .env.example
