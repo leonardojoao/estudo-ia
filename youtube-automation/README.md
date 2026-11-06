@@ -371,11 +371,24 @@ Esta etapa é necessária somente para publicar no YouTube.
 6. Crie uma credencial OAuth 2.0.
 7. Baixe o JSON das credenciais.
 8. Não faça commit desse JSON.
-9. Configure o arquivo pela funcionalidade de contas quando ela estiver
-   disponível na interface.
+9. Coloque o arquivo como `client_secret.json` no diretório configurado por
+   `OAUTH_CREDENTIALS_PATH` (por padrão, `/app/credentials` no container).
+10. Cadastre `http://localhost:8000/api/accounts/oauth/callback` como redirect
+    URI autorizado no Google Cloud Console.
 
 Os tokens devem permanecer no volume Docker `youtube-automation-credentials`.
 Se o volume for removido, será necessário autorizar as contas novamente.
+
+Com `X-Admin-Key: SUA_SECRET_KEY`, a API disponibiliza:
+
+- `GET /api/accounts/oauth/url` para iniciar a autorização;
+- `GET /api/accounts` para listar contas sem credenciais;
+- `POST /api/accounts/{id}/test` para testar um token;
+- `DELETE /api/accounts/{id}` para remover uma conta.
+
+O callback OAuth valida um state CSRF persistido por 10 minutos e redireciona
+para `FRONTEND_URL/accounts?connected=true`. Uma nova autorização para o mesmo
+canal atualiza a conta existente.
 
 ## Desenvolvimento
 

@@ -1251,11 +1251,11 @@ POST /api/accounts/{id}/test    → testa validade do token
 ```
 
 #### Critérios de conclusão
-- [ ] `GET /api/accounts` nunca retorna `credentials` no payload
-- [ ] Callback OAuth salva conta no banco e redireciona para `/accounts` no frontend
-- [ ] `DELETE` remove tokens criptografados e o registro da conta
-- [ ] `POST /{id}/test` retorna `{"valid": true|false, "error": "..."}` — nunca 500
-- [ ] Contas com token expirado aparecem na lista com `is_active: false`
+- [x] `GET /api/accounts` nunca retorna `credentials` no payload
+- [x] Callback OAuth salva conta no banco e redireciona para `/accounts` no frontend
+- [x] `DELETE` remove tokens criptografados e o registro da conta
+- [x] `POST /{id}/test` retorna `{"valid": true|false, "error": "..."}` — nunca 500
+- [x] Contas com token expirado aparecem na lista com `is_active: false`
 
 ---
 
