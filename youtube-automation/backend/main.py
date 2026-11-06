@@ -6,7 +6,7 @@ from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import inspect, update
+from sqlalchemy import inspect, text, update
 
 from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
@@ -23,9 +23,14 @@ def run_migrations() -> None:
     if not _migrations_applied:
         config = Config("alembic.ini")
         inspector = inspect(engine)
-        if inspector.has_table("youtube_accounts") and not inspector.has_table(
-            "alembic_version"
-        ):
+        has_legacy_schema = inspector.has_table("youtube_accounts")
+        has_version = False
+        if inspector.has_table("alembic_version"):
+            with engine.connect() as connection:
+                has_version = connection.execute(
+                    text("SELECT 1 FROM alembic_version LIMIT 1")
+                ).first() is not None
+        if has_legacy_schema and not has_version:
             command.stamp(config, "head")
         else:
             command.upgrade(config, "head")
