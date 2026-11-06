@@ -1359,13 +1359,13 @@ async def cancel_scheduled_job(scheduler_job_id: str) -> None: ...
 ```
 
 #### Critérios de conclusão
-- [ ] Scheduler inicia/para no lifespan da aplicação (TASK-011)
-- [ ] Jobs agendados persistidos no SQLite (sobrevivem a restart do servidor)
-- [ ] `schedule_upload_job` usa fuso UTC internamente
-- [ ] Job cancelado quando processamento é deletado
-- [ ] **Job de limpeza de audio preview:** job periódico a cada 1h que deleta arquivos em `/tmp/audio_preview/` com mais de `settings.audio_preview_ttl_hours` horas
-- [ ] **Job de limpeza de oauth_states:** job periódico a cada 30min que deleta registros com `expires_at < now()` da tabela `oauth_states`
-- [ ] **Job de retenção de outputs:** job diário que deleta arquivos em `/app/output/` com mais de `settings.output_retention_days` dias (apenas se já publicados no YouTube)
+- [x] Scheduler inicia/para no lifespan da aplicação (TASK-011)
+- [x] Jobs agendados persistidos no SQLite (sobrevivem a restart do servidor)
+- [x] `schedule_upload_job` usa fuso UTC internamente
+- [x] Job cancelado quando processamento é deletado
+- [x] **Job de limpeza de audio preview:** job periódico a cada 1h que deleta arquivos em `/tmp/audio_preview/` com mais de `settings.audio_preview_ttl_hours` horas
+- [x] **Job de limpeza de oauth_states:** job periódico a cada 30min que deleta registros com `expires_at < now()` da tabela `oauth_states`
+- [x] **Job de retenção de outputs:** job diário que deleta arquivos em `/app/output/` com mais de `settings.output_retention_days` dias (apenas se já publicados no YouTube)
 
 ---
 
