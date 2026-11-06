@@ -1330,9 +1330,9 @@ async def generate_description(
 ```
 
 #### Critérios de conclusão
-- [ ] Título sempre ≤ 100 caracteres após `generate_title`
-- [ ] Descrição sempre ≤ 5000 caracteres
-- [ ] Se Ollama offline, lança `OllamaUnavailableError` (não retorna string vazia)
+- [x] Título sempre ≤ 100 caracteres após `generate_title`
+- [x] Descrição sempre ≤ 5000 caracteres
+- [x] Se Ollama offline, lança `OllamaUnavailableError` (não retorna string vazia)
 
 ---
 
