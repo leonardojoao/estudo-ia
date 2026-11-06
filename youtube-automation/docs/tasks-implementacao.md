@@ -836,17 +836,17 @@ async def select_videos_for_duration(
     Seleciona vídeos aleatoriamente até cobrir required_duration * (1 + safety_margin).
     Ignora vídeos com duração < 6s.
     Permite repetição se necessário.
-    Lança InsufficientVideosError se pasta vazia ou vídeos totais insuficientes.
+    Lança InsufficientVideosError se não houver vídeos elegíveis.
     """
 ```
 
 Usar `ffprobe` (via `ffmpeg.probe()`) para ler metadados.
 
 #### Critérios de conclusão
-- [ ] `scan_videos_folder` retorna lista vazia (não erro) para pasta sem vídeos suportados
-- [ ] `select_videos_for_duration` usa `random.shuffle()` na lista antes de selecionar
-- [ ] Duração total dos vídeos selecionados >= `required_duration * 1.10`
-- [ ] `InsufficientVideosError` com mensagem indicando duração disponível vs necessária
+- [x] `scan_videos_folder` retorna lista vazia (não erro) para pasta sem vídeos suportados
+- [x] `select_videos_for_duration` usa `random.shuffle()` na lista antes de selecionar
+- [x] Duração total dos vídeos selecionados >= `required_duration * 1.10`
+- [x] `InsufficientVideosError` com mensagem indicando duração disponível vs necessária
 
 ---
 
