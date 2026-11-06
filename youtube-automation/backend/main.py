@@ -6,11 +6,11 @@ from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import update
+from sqlalchemy import inspect, update
 
 from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
-from app.db.database import SessionLocal
+from app.db.database import SessionLocal, engine
 from app.api.routes.settings import router as settings_router
 from app.models.job import ProcessingJob
 
@@ -21,7 +21,14 @@ def run_migrations() -> None:
     """Aplica migrations pendentes antes de iniciar a API."""
     global _migrations_applied
     if not _migrations_applied:
-        command.upgrade(Config("alembic.ini"), "head")
+        config = Config("alembic.ini")
+        inspector = inspect(engine)
+        if inspector.has_table("youtube_accounts") and not inspector.has_table(
+            "alembic_version"
+        ):
+            command.stamp(config, "head")
+        else:
+            command.upgrade(config, "head")
         _migrations_applied = True
 
 
