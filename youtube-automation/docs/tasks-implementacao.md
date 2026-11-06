@@ -1288,13 +1288,13 @@ async def upload_video(
 ```
 
 #### Critérios de conclusão
-- [ ] Usa resumable upload (MediaFileUpload com `resumable=True`)
-- [ ] `progress_callback` chamado a cada chunk (~1MB)
-- [ ] `video_id` retornado após upload completo
-- [ ] `YouTubeAPIError` lançado com code e message da API em caso de falha
-- [ ] Token renovado automaticamente se expirado antes do upload
-- [ ] **`quotaExceeded` tratado especificamente:** retornar mensagem orientada ao usuário com horário de renovação da quota (meia-noite PT) e sugerir reagendamento automático para 01h00 PT do dia seguinte
-- [ ] **`services/youtube/schemas.py` criado:** `UploadInput(video_path, title, description, tags, category_id, privacy, publish_at)`, `UploadOutput(video_id, youtube_url)`, `ScheduleUploadInput`
+- [x] Usa resumable upload (MediaFileUpload com `resumable=True`)
+- [x] `progress_callback` chamado a cada chunk (~1MB)
+- [x] `video_id` retornado após upload completo
+- [x] `YouTubeAPIError` lançado com code e message da API em caso de falha
+- [x] Token renovado automaticamente se expirado antes do upload
+- [x] **`quotaExceeded` tratado especificamente:** retornar mensagem orientada ao usuário com horário de renovação da quota (meia-noite PT) e sugerir reagendamento automático para 01h00 PT do dia seguinte
+- [x] **`services/youtube/schemas.py` criado:** `UploadInput(video_path, title, description, tags, category_id, privacy, publish_at)`, `UploadOutput(video_id, youtube_url)`, `ScheduleUploadInput`
 
 ---
 

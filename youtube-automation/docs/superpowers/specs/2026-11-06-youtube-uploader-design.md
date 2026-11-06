@@ -38,7 +38,8 @@ agendamento, a privacidade solicitada será preservada.
 4. Enviar o arquivo com `MediaFileUpload(resumable=True, chunksize=1 MiB)`.
 5. Repetir `next_chunk()` até a resposta final, chamando o callback com
    percentual inteiro após cada chunk.
-6. Retornar o ID e a URL `https://www.youtube.com/watch?v={video_id}`.
+6. Retornar o `video_id`; camadas superiores podem construir a URL
+   `https://www.youtube.com/watch?v={video_id}` usando `UploadOutput`.
 
 ## Tratamento de erros
 
