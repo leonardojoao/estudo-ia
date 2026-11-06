@@ -6,19 +6,26 @@ from unittest.mock import Mock
 
 import pytest
 from google.oauth2.credentials import Credentials
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 from app.core.config import Settings
 from app.core.crypto import encrypt
 from app.core.exceptions import OAuthError, TokenDecryptionError
+from app.db.database import Base
 from app.models.account import YouTubeAccount
+from app.models.oauth_state import OAuthState
 from app.services.youtube.auth import (
     YOUTUBE_SCOPES,
+    create_oauth_state,
     exchange_code_for_tokens,
     extract_state,
     get_channel_info,
     get_oauth_authorization_url,
     refresh_token_if_expired,
     test_token as check_token,
+    validate_oauth_state,
 )
 
 
@@ -45,6 +52,45 @@ def _credentials(expired: bool = False) -> Credentials:
         scopes=YOUTUBE_SCOPES,
         expiry=expiry,
     )
+
+
+@pytest.fixture
+def db():
+    """Fornece um banco SQLite isolado para os testes de state."""
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        yield session
+
+
+def test_oauth_state_is_single_use(db):
+    """State válido deve ser consumido e rejeitado na segunda tentativa."""
+    state = create_oauth_state(db)
+
+    assert validate_oauth_state(db, state) is True
+    with pytest.raises(OAuthError, match="inválido"):
+        validate_oauth_state(db, state)
+
+
+def test_expired_oauth_state_is_rejected_and_deleted(db):
+    """State expirado não pode ser reutilizado."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.add(
+        OAuthState(
+            state_token="expired-state",
+            created_at=now - timedelta(minutes=11),
+            expires_at=now - timedelta(minutes=1),
+        )
+    )
+    db.commit()
+
+    with pytest.raises(OAuthError, match="expirado"):
+        validate_oauth_state(db, "expired-state")
+    assert db.get(OAuthState, "expired-state") is None
 
 
 def test_authorization_url_contains_oauth_parameters(monkeypatch, tmp_path):

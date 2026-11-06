@@ -3,10 +3,11 @@
 import asyncio
 import json
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+from uuid import uuid4
 
 from google.auth.transport.requests import Request
 from google.auth.exceptions import GoogleAuthError
@@ -15,17 +16,51 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from oauthlib.oauth2.rfc6749.errors import OAuth2Error
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.crypto import decrypt, encrypt
 from app.core.exceptions import OAuthError, TokenDecryptionError, YouTubeAPIError
 from app.models.account import YouTubeAccount
+from app.models.oauth_state import OAuthState
 
 YOUTUBE_SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube.readonly",
 ]
+OAUTH_STATE_TTL = timedelta(minutes=10)
+
+
+def create_oauth_state(db: Session) -> str:
+    """Cria e persiste um state OAuth com validade limitada."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.execute(delete(OAuthState).where(OAuthState.expires_at <= now))
+    state_token = uuid4().hex
+    db.add(
+        OAuthState(
+            state_token=state_token,
+            created_at=now,
+            expires_at=now + OAUTH_STATE_TTL,
+        )
+    )
+    db.commit()
+    return state_token
+
+
+def validate_oauth_state(db: Session, state: str) -> bool:
+    """Valida e consome um state OAuth exatamente uma vez."""
+    if not state.strip():
+        raise OAuthError("State OAuth ausente")
+    oauth_state = db.scalar(select(OAuthState).where(OAuthState.state_token == state))
+    if oauth_state is None:
+        raise OAuthError("State OAuth inválido ou já utilizado")
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.delete(oauth_state)
+    db.commit()
+    if oauth_state.expires_at <= now:
+        raise OAuthError("State OAuth expirado")
+    return True
 
 
 def _client_secret_file(settings: Settings) -> str:
