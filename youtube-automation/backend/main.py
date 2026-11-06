@@ -10,6 +10,7 @@ from sqlalchemy import inspect, text, update
 
 from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
+from app.core.scheduler import shutdown_scheduler, start_scheduler
 from app.db.database import SessionLocal, engine
 from app.api.routes.settings import router as settings_router
 from app.api.routes.ollama import router as ollama_router
@@ -60,7 +61,11 @@ async def lifespan(_: FastAPI):
     """Inicializa a persistência antes de atender requisições."""
     run_migrations()
     recover_zombie_jobs()
-    yield
+    start_scheduler(settings)
+    try:
+        yield
+    finally:
+        shutdown_scheduler()
 
 
 settings = get_settings()
