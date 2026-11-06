@@ -13,6 +13,7 @@ from app.core.exceptions import register_exception_handlers
 from app.db.database import SessionLocal, engine
 from app.api.routes.settings import router as settings_router
 from app.api.routes.ollama import router as ollama_router
+from app.api.routes.accounts import router as accounts_router
 from app.models.job import ProcessingJob
 
 _migrations_applied = False
@@ -28,9 +29,12 @@ def run_migrations() -> None:
         has_version = False
         if inspector.has_table("alembic_version"):
             with engine.connect() as connection:
-                has_version = connection.execute(
-                    text("SELECT 1 FROM alembic_version LIMIT 1")
-                ).first() is not None
+                has_version = (
+                    connection.execute(
+                        text("SELECT 1 FROM alembic_version LIMIT 1")
+                    ).first()
+                    is not None
+                )
         if has_legacy_schema and not has_version:
             command.stamp(config, "head")
         else:
@@ -76,6 +80,7 @@ app.add_middleware(
 register_exception_handlers(app)
 app.include_router(settings_router, prefix="/api")
 app.include_router(ollama_router, prefix="/api")
+app.include_router(accounts_router, prefix="/api")
 
 
 @app.get("/health", tags=["system"])

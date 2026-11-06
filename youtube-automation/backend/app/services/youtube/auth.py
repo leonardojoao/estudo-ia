@@ -85,11 +85,14 @@ def _create_flow(settings: Settings) -> InstalledAppFlow:
     )
 
 
-def get_oauth_authorization_url(settings: Settings) -> str:
+def get_oauth_authorization_url(
+    settings: Settings,
+    state: str | None = None,
+) -> str:
     """Gera a URL de autorização OAuth do YouTube."""
     flow = _create_flow(settings)
     flow.redirect_uri = settings.oauth_redirect_uri
-    state = secrets.token_urlsafe(32)
+    state = state or secrets.token_urlsafe(32)
     authorization_url, returned_state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
@@ -226,7 +229,7 @@ async def test_token(
     """Retorna se as credenciais criptografadas ainda são válidas."""
     try:
         payload = json.loads(decrypt(account.credentials, settings))
-    except (json.JSONDecodeError, TokenDecryptionError):
+    except json.JSONDecodeError:
         return False
     return await asyncio.to_thread(_test_token, payload)
 
