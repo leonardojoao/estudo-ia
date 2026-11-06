@@ -1,475 +1,640 @@
 # YouTube Automation
 
-Sistema de automação para criação e publicação de vídeos no YouTube usando IA local (Ollama), TTS neural (edge-tts) e processamento de vídeo com FFmpeg.
+Aplicação para automatizar a criação e, futuramente, a publicação de vídeos no
+YouTube usando IA local, síntese de voz e processamento de vídeo.
 
-**Stack:** FastAPI · Vue 3 · SQLite · Docker · Ollama
+## Status atual
 
----
+O backend executável está disponível e pode ser iniciado com Docker:
+
+- FastAPI + Uvicorn;
+- SQLite com persistência em volume Docker;
+- migrations com Alembic;
+- configurações via API;
+- Ollama para geração de texto;
+- FFmpeg dentro da imagem;
+- testes, lint e health check.
+
+O frontend Vue ainda está em construção. Atualmente o repositório contém a
+configuração Docker/Nginx do frontend, mas ainda não contém `package.json` nem
+os arquivos da aplicação Vue. Por isso, a instalação recomendada neste momento
+é o backend isolado. O perfil completo será habilitado quando o código do
+frontend for adicionado.
 
 ## Sumário
 
+- [Arquitetura](#arquitetura)
 - [Pré-requisitos](#pré-requisitos)
-- [Início Rápido](#início-rápido)
+- [Instalação rápida do backend](#instalação-rápida-do-backend)
+- [Instalação no Windows](#instalação-no-windows)
+- [Instalação no Linux ou macOS](#instalação-no-linux-ou-macos)
+- [Configuração do arquivo `.env`](#configuração-do-arquivo-env)
+- [Configuração do Ollama](#configuração-do-ollama)
+- [Inicialização e operação](#inicialização-e-operação)
 - [Configuração OAuth do YouTube](#configuração-oauth-do-youtube)
-- [Variáveis de Ambiente](#variáveis-de-ambiente)
-- [Modo Desenvolvimento](#modo-desenvolvimento)
-- [Comandos Disponíveis](#comandos-disponíveis)
-- [Verificação de Saúde](#verificação-de-saúde)
-- [Arquitetura dos Containers](#arquitetura-dos-containers)
-- [Solução de Problemas](#solução-de-problemas)
+- [Desenvolvimento](#desenvolvimento)
+- [Testes e qualidade](#testes-e-qualidade)
+- [Persistência e backup](#persistência-e-backup)
+- [Solução de problemas](#solução-de-problemas)
+- [Estrutura do projeto](#estrutura-do-projeto)
 
----
+## Arquitetura
+
+```text
+Seu computador
+├── Ollama :11434
+└── Docker
+    └── backend :8000
+        ├── FastAPI
+        ├── SQLite + Alembic
+        └── FFmpeg
+```
+
+O backend acessa o Ollama no host por `host.docker.internal`. O banco, as
+credenciais OAuth e os arquivos gerados ficam em volumes Docker persistentes.
+A pasta de vídeos de entrada é montada no container como `/app/videos`.
 
 ## Pré-requisitos
 
-| Dependência | Versão mínima | Instalação |
-|-------------|---------------|------------|
-| Docker + Compose plugin | 24+ | [docs.docker.com](https://docs.docker.com/get-docker/) |
-| Ollama | Qualquer | [ollama.com](https://ollama.com) |
-| Python 3.11+ | 3.11 | Apenas para `make health` e scripts locais |
+### Obrigatórios
 
-> **FFmpeg** não precisa estar instalado no host — ele já está dentro do container Docker.
+| Dependência | Versão recomendada | Observação |
+|---|---:|---|
+| Docker Desktop (Windows/macOS) ou Docker Engine (Linux) | 24+ | Deve estar iniciado |
+| Docker Compose plugin | v2+ | Incluído nas versões atuais do Docker Desktop |
+| Git | versão atual | Para clonar o projeto |
+| Ollama | versão atual | Necessário para recursos de IA |
 
-### Instalar Ollama e um modelo
+Python 3.11 é usado dentro do Docker. Não é necessário instalar Python no host
+para executar a aplicação. Python no host só é necessário para executar o
+script opcional de health check.
+
+FFmpeg também não precisa ser instalado no host: ele já está na imagem Docker
+do backend.
+
+### Conferir o Docker
 
 ```bash
-# Instala o Ollama (Linux/Mac)
-curl -fsSL https://ollama.com/install.sh | sh
+docker --version
+docker compose version
+docker info
+```
 
-# Baixa o modelo llama3 (~4.7GB)
+No Windows, abra o Docker Desktop e aguarde o status **Engine running** antes
+de executar os comandos do projeto.
+
+## Instalação rápida do backend
+
+Os comandos abaixo funcionam em Linux, macOS, Git Bash e WSL.
+
+### 1. Clonar o repositório
+
+```bash
+git clone <URL_DO_REPOSITORIO>
+cd <PASTA_DO_REPOSITORIO>/youtube-automation
+```
+
+### 2. Criar o arquivo de ambiente
+
+```bash
+cp .env.example .env
+mkdir -p videos
+```
+
+No Windows PowerShell, use:
+
+```powershell
+Copy-Item .env.example .env
+New-Item -ItemType Directory -Force videos
+```
+
+### 3. Gerar uma chave secreta
+
+Linux/macOS/Git Bash:
+
+```bash
+openssl rand -hex 32
+```
+
+PowerShell:
+
+```powershell
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Copie o resultado para `SECRET_KEY` no arquivo `.env`. Nunca publique essa
+chave e nunca use o valor de exemplo em produção.
+
+### 4. Configurar a pasta de vídeos
+
+Para usar uma pasta dentro do projeto:
+
+```dotenv
+VIDEOS_FOLDER_HOST=./videos
+```
+
+No Windows, também é possível usar um caminho absoluto. Use aspas se o caminho
+possuir espaços:
+
+```dotenv
+VIDEOS_FOLDER_HOST=C:\Users\SeuUsuario\Videos\youtube-source
+```
+
+Ou, no formato aceito pelo Docker Desktop:
+
+```dotenv
+VIDEOS_FOLDER_HOST=C:/Users/SeuUsuario/Videos/youtube-source
+```
+
+### 5. Iniciar somente o backend
+
+```bash
+docker compose up -d --build backend
+```
+
+### 6. Verificar a instalação
+
+```bash
+docker compose ps
+curl http://localhost:8000/health
+```
+
+Resposta esperada:
+
+```json
+{"status":"ok"}
+```
+
+Também é possível abrir a documentação interativa em
+<http://localhost:8000/docs> ou a documentação ReDoc em
+<http://localhost:8000/redoc>.
+
+## Instalação no Windows
+
+### Docker Desktop
+
+1. Instale o Docker Desktop pelo site oficial:
+   <https://www.docker.com/products/docker-desktop/>
+2. Inicie o Docker Desktop.
+3. Confirme no PowerShell:
+
+```powershell
+docker --version
+docker compose version
+docker info
+```
+
+### Clonar e configurar
+
+No PowerShell:
+
+```powershell
+git clone <URL_DO_REPOSITORIO>
+Set-Location .\youtube-automation
+Copy-Item .env.example .env
+New-Item -ItemType Directory -Force .\videos
+```
+
+Edite o arquivo:
+
+```powershell
+notepad .env
+```
+
+Defina pelo menos:
+
+```dotenv
+SECRET_KEY=COLE_A_CHAVE_GERADA_AQUI
+OLLAMA_URL=http://host.docker.internal:11434
+OLLAMA_MODEL=llama3
+VIDEOS_FOLDER_HOST=./videos
+```
+
+Inicie e valide:
+
+```powershell
+docker compose up -d --build backend
+docker compose ps
+Invoke-RestMethod http://localhost:8000/health
+```
+
+Para acompanhar os logs:
+
+```powershell
+docker compose logs -f backend
+```
+
+Se o Docker Desktop bloquear o acesso a uma pasta absoluta, abra **Settings >
+Resources > File Sharing** e permita a unidade ou pasta usada no volume.
+
+## Instalação no Linux ou macOS
+
+Instale Docker conforme a documentação oficial:
+
+- Linux: <https://docs.docker.com/engine/install/>
+- macOS: <https://docs.docker.com/desktop/install/mac-install/>
+
+Depois execute:
+
+```bash
+git clone <URL_DO_REPOSITORIO>
+cd youtube-automation
+cp .env.example .env
+mkdir -p videos
+openssl rand -hex 32
+# Edite .env e cole a chave gerada em SECRET_KEY
+docker compose up -d --build backend
+curl http://localhost:8000/health
+```
+
+Em Linux, o Compose já adiciona `host.docker.internal` usando
+`host-gateway`, permitindo que o container alcance o Ollama no host.
+
+## Configuração do arquivo `.env`
+
+O arquivo `.env.example` contém todos os parâmetros. Os mais importantes são:
+
+| Variável | Obrigatória | Padrão | Finalidade |
+|---|---|---|---|
+| `SECRET_KEY` | Sim em produção | Nenhum seguro | Criptografia e proteção administrativa |
+| `OLLAMA_URL` | Sim para IA | `http://host.docker.internal:11434` | Endereço do Ollama |
+| `OLLAMA_MODEL` | Não | `llama3` | Modelo usado pela aplicação |
+| `VIDEOS_FOLDER_HOST` | Recomendado | `./videos` | Pasta de vídeos no host |
+| `BACKEND_PORT` | Não | `8000` | Porta exposta pelo backend |
+| `DATABASE_PATH` | Não | `/app/data/youtube_automation.db` | Arquivo SQLite no container |
+| `LOG_LEVEL` | Não | `INFO` | Nível dos logs |
+| `ENVIRONMENT` | Não | `production` | Ambiente da aplicação |
+| `CORS_ORIGINS` | Não | `http://localhost,http://localhost:80` | Origens permitidas, separadas por vírgula |
+| `TTS_VOICE` | Não | `en-US-JennyNeural` | Voz de síntese |
+| `DEFAULT_DIMENSION` | Não | `16:9` | Formato normal ou `9:16` para Shorts |
+| `CLIP_MIN_DURATION` | Não | `3` | Duração mínima dos clipes |
+| `CLIP_MAX_DURATION` | Não | `6` | Duração máxima dos clipes |
+| `MAX_WORKERS` | Não | `2` | Workers de processamento |
+
+Não coloque credenciais, tokens ou chaves diretamente no `docker-compose.yml`.
+O arquivo `.env` já está no `.gitignore` e não deve ser commitado.
+
+## Configuração do Ollama
+
+Instale o Ollama em <https://ollama.com/download>.
+
+Depois confirme que o serviço está ativo:
+
+```bash
+ollama serve
+```
+
+Em outro terminal, baixe o modelo configurado:
+
+```bash
 ollama pull llama3
-
-# Verifica se está rodando
+ollama list
 curl http://localhost:11434/api/tags
 ```
 
----
+No Windows, o aplicativo Ollama normalmente inicia o serviço automaticamente.
+Se necessário, execute os mesmos comandos no PowerShell.
 
-## Início Rápido
-
-### 1. Clone e configure o ambiente
-
-```bash
-git clone <url-do-repositorio>
-cd youtube-automation
-
-# Cria o .env a partir do exemplo
-cp .env.example .env
-```
-
-### 2. Edite o `.env` com suas configurações
-
-As configurações mínimas obrigatórias:
+Se você usar outro modelo, altere:
 
 ```dotenv
-# Chave secreta para criptografar tokens OAuth
-# Gere com: openssl rand -hex 32
-SECRET_KEY=cole-aqui-sua-chave-gerada
-
-# Pasta com seus vídeos fonte no host
-# Linux/Mac: /home/usuario/Videos/fonte
-# Windows:   C:\Users\Usuario\Videos\fonte
-VIDEOS_FOLDER_HOST=./videos
-
-# URL do Ollama (padrão funciona se estiver rodando localmente)
-OLLAMA_URL=http://host.docker.internal:11434
+OLLAMA_MODEL=llama3.1:8b
 ```
 
-### 3. Inicie os containers
+e baixe-o antes de iniciar o processamento:
 
 ```bash
-# Modo produção (background)
-docker compose up -d
-
-# Acompanhe a inicialização
-docker compose logs -f
+ollama pull llama3.1:8b
 ```
 
-Aguarde o backend passar no health check (alguns segundos). Quando os dois serviços estiverem `healthy`, acesse:
+## Inicialização e operação
 
-- **Interface:** http://localhost
-- **API Docs (Swagger):** http://localhost:8000/docs
-- **API Docs (ReDoc):** http://localhost:8000/redoc
+### Produção
 
----
+```bash
+docker compose up -d --build backend
+docker compose ps
+docker compose logs -f backend
+```
+
+Parar o backend sem apagar volumes:
+
+```bash
+docker compose down
+```
+
+Reiniciar:
+
+```bash
+docker compose restart backend
+```
+
+Atualizar depois de baixar alterações:
+
+```bash
+git pull
+docker compose up -d --build backend
+```
+
+### Endpoints disponíveis
+
+| Endpoint | Função |
+|---|---|
+| `GET /health` | Health check básico |
+| `GET /docs` | Swagger UI |
+| `GET /redoc` | ReDoc |
+| `GET /api/settings` | Consulta configurações não sensíveis |
+| `PUT /api/settings` | Atualiza configurações administrativas |
+| `POST /api/settings/validate-videos-folder` | Valida a pasta de vídeos |
+
+As alterações administrativas exigem o header `X-Admin-Key` com o valor de
+`SECRET_KEY`. A API não retorna a chave secreta nem credenciais OAuth.
+
+Exemplo:
+
+```bash
+curl -X PUT http://localhost:8000/api/settings \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Key: SUA_SECRET_KEY" \
+  -d '{"default_dimension":"9:16"}'
+```
 
 ## Configuração OAuth do YouTube
 
-Para habilitar o upload de vídeos, você precisa de credenciais OAuth2 do Google Cloud Console.
+Esta etapa é necessária somente para publicar no YouTube.
 
-### Passo a passo
+1. Acesse <https://console.cloud.google.com/>.
+2. Crie ou selecione um projeto.
+3. Ative **YouTube Data API v3** em **APIs e serviços > Biblioteca**.
+4. Configure a tela de consentimento OAuth.
+5. Adicione seu e-mail como usuário de teste quando o aplicativo estiver em
+   modo de teste.
+6. Crie uma credencial OAuth 2.0.
+7. Baixe o JSON das credenciais.
+8. Não faça commit desse JSON.
+9. Configure o arquivo pela funcionalidade de contas quando ela estiver
+   disponível na interface.
 
-**1. Acesse o Google Cloud Console**
+Os tokens devem permanecer no volume Docker `youtube-automation-credentials`.
+Se o volume for removido, será necessário autorizar as contas novamente.
 
-Vá para [console.cloud.google.com](https://console.cloud.google.com) e crie um projeto (ou use um existente).
+## Desenvolvimento
 
-**2. Ative a YouTube Data API v3**
-
-- Menu → APIs e Serviços → Biblioteca
-- Pesquise "YouTube Data API v3"
-- Clique em **Ativar**
-
-**3. Configure a tela de consentimento OAuth**
-
-- Menu → APIs e Serviços → Tela de consentimento OAuth
-- Tipo de usuário: **Externo** (para uso pessoal)
-- Preencha nome do app, email de suporte
-- Em "Escopos", adicione: `https://www.googleapis.com/auth/youtube.upload`
-- Em "Usuários de teste", adicione seu email do Google
-
-**4. Crie as credenciais OAuth2**
-
-- Menu → APIs e Serviços → Credenciais
-- Criar credenciais → **ID do cliente OAuth 2.0**
-- Tipo de aplicativo: **Aplicativo da Web**
-- URIs de redirecionamento autorizados:
-  ```
-  http://localhost:8000/api/accounts/oauth/callback
-  ```
-- Baixe o arquivo JSON das credenciais
-
-**5. Configure na interface**
-
-- Acesse a aba **Configurações** na interface
-- No campo "Credenciais OAuth", faça upload ou informe o path do JSON baixado
-- Clique em **Contas** → **Conectar conta** para autorizar
-
-> As credenciais são armazenadas criptografadas no banco de dados local. Nenhum dado é enviado para servidores externos.
-
----
-
-## Variáveis de Ambiente
-
-Todas as variáveis ficam no arquivo `.env` (criado a partir de `.env.example`).
-
-### Obrigatórias em produção
-
-| Variável | Descrição | Exemplo |
-|----------|-----------|---------|
-| `SECRET_KEY` | Chave para criptografia de tokens OAuth. Gere com `openssl rand -hex 32` | `a1b2c3...` |
-| `VIDEOS_FOLDER_HOST` | Caminho no host para a pasta de vídeos fonte | `/home/user/Videos` |
-
-### Ollama
-
-| Variável | Padrão | Descrição |
-|----------|--------|-----------|
-| `OLLAMA_URL` | `http://host.docker.internal:11434` | URL do serviço Ollama |
-| `OLLAMA_MODEL` | `llama3` | Modelo padrão para geração de texto |
-
-### Servidor
-
-| Variável | Padrão | Descrição |
-|----------|--------|-----------|
-| `BACKEND_PORT` | `8000` | Porta do backend no host |
-| `FRONTEND_PORT` | `80` | Porta do frontend no host |
-| `ENVIRONMENT` | `production` | `production` ou `development` |
-| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-
-### Processamento de Vídeo
-
-| Variável | Padrão | Descrição |
-|----------|--------|-----------|
-| `TTS_VOICE` | `en-US-JennyNeural` | Voz do edge-tts (ver `.env.example` para lista) |
-| `DEFAULT_DIMENSION` | `16:9` | `16:9` (YouTube) ou `9:16` (Shorts) |
-| `CLIP_MIN_DURATION` | `3` | Duração mínima dos clipes anti-plágio (segundos) |
-| `CLIP_MAX_DURATION` | `6` | Duração máxima dos clipes anti-plágio (segundos) |
-| `MAX_WORKERS` | `2` | Workers para processamento paralelo |
-
----
-
-## Modo Desenvolvimento
-
-O modo de desenvolvimento habilita hot reload automático para backend e frontend.
+O Compose de desenvolvimento monta o código do backend e habilita reload:
 
 ```bash
-# Inicia com hot reload
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build backend
+```
 
-# Ou com Make (Linux/Mac)
+O frontend ainda não possui os arquivos-fonte necessários para executar o
+Vite. Quando ele estiver disponível, o comando de desenvolvimento completo será:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+```
+
+Backend em desenvolvimento:
+
+- API: <http://localhost:8000>
+- Swagger: <http://localhost:8000/docs>
+- reload automático ao alterar arquivos Python;
+- volumes de desenvolvimento separados dos volumes de produção.
+
+## Testes e qualidade
+
+### Testes no container de desenvolvimento
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm backend \
+  pytest tests/ -v
+```
+
+Com cobertura:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm backend \
+  pytest tests/ -v --cov=app --cov-report=term-missing
+```
+
+Lint e formatação:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm backend \
+  sh -c "ruff check . && black --check --diff ."
+```
+
+### Usando Make
+
+GNU Make é opcional. Os comandos Docker acima funcionam sem Make.
+
+```bash
+make setup
 make dev
-```
-
-**URLs em modo dev:**
-- Frontend (Vite HMR): http://localhost:5173
-- Backend (com reload): http://localhost:8000
-- API Docs: http://localhost:8000/docs
-
-**Comportamentos em dev:**
-- Qualquer mudança em arquivos `.py` reinicia o uvicorn automaticamente
-- Qualquer mudança em `.vue` ou `.ts` atualiza o browser instantaneamente
-- Logs em nível `DEBUG` (mais verboso)
-- CORS liberado para `localhost:5173`
-- Sem restart automático de containers (crashes ficam visíveis)
-
-### Executar testes em desenvolvimento
-
-```bash
-# Todos os testes
-make test
-
-# Apenas backend (pytest com cobertura)
+make prod
+make stop
 make test-backend
-
-# Apenas frontend (vitest)
-make test-frontend
-
-# Lint (verifica formatação e estilo)
-make lint
+make lint-backend
+make build-backend
+make logs
+make ps
+make health
 ```
 
----
+No Windows, instale GNU Make por Chocolatey:
 
-## Comandos Disponíveis
-
-### Com Make
-
-> **Windows:** instale o GNU make com `choco install make` (Chocolatey) ou use os comandos Docker diretamente.
-
-```bash
-make setup          # Cria .env e diretórios necessários
-make dev            # Desenvolvimento com hot reload
-make prod           # Produção em background
-make stop           # Para todos os containers
-make test           # Todos os testes
-make test-backend   # Testes do backend
-make test-frontend  # Testes do frontend
-make lint           # Todos os linters
-make build          # Build das imagens Docker
-make clean          # Remove containers e imagens
-make clean-volumes  # Remove containers, imagens e DADOS (irreversível)
-make logs           # Logs em tempo real
-make ps             # Status dos containers
-make health         # Verificação de saúde do ambiente
-make shell-backend  # Shell no container backend
-make shell-frontend # Shell no container frontend
+```powershell
+choco install make
 ```
 
-### Com Docker Compose diretamente
+ou por winget:
 
-```bash
-# Produção
-docker compose up -d
-docker compose down
-docker compose logs -f
-docker compose ps
-
-# Desenvolvimento
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
-docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm backend pytest tests/
-
-# Rebuild sem cache
-docker compose build --no-cache
-
-# Acessar shell do container
-docker compose exec backend sh
-docker compose exec frontend sh
+```powershell
+winget install GnuWin32.Make
 ```
 
----
+## Health check completo
 
-## Verificação de Saúde
-
-O script `scripts/healthcheck.py` verifica todos os componentes do ambiente:
+Com o backend em execução:
 
 ```bash
 python scripts/healthcheck.py
 ```
 
-**Verifica:**
-- Backend respondendo em `/health`
-- Diretório do banco de dados acessível
-- Ollama acessível com modelos instalados
-- FFmpeg instalado
-- Pasta de vídeos configurada com arquivos suportados
-
-**Exemplo de saída:**
-
-```
-============================================================
-  YouTube Automation — Verificação de Saúde do Ambiente
-============================================================
-
-Backend FastAPI:
-  ✓ Backend: HTTP 200 — status=ok (http://localhost:8000/health)
-
-Banco de Dados:
-  ✓ Banco de dados: './data/youtube_automation.db' (12.5 KB)
-
-Ollama (IA Local):
-  ✓ Ollama: 2 modelo(s) em http://localhost:11434
-         Modelos: llama3:latest, llama3.1:8b
-
-FFmpeg (Processamento):
-  ✓ FFmpeg: versão 6.1.1
-
-Pasta de Vídeos:
-  ✓ Pasta de vídeos: './videos' — 15 vídeo(s)
-         Tipos: 12 .mp4, 3 .mov
-
-------------------------------------------------------------
-  ✓ Todos os 5 checks passaram — ambiente pronto!
-```
-
----
-
-## Arquitetura dos Containers
-
-```
-┌─────────────────────────────────────────────────┐
-│                   Host Machine                   │
-│                                                  │
-│  ┌─────────────┐   ┌─────────────────────────┐  │
-│  │   Ollama    │   │  YouTube Automation     │  │
-│  │  :11434     │   │  Docker Network         │  │
-│  └──────┬──────┘   │                         │  │
-│         │          │  ┌──────────────────┐   │  │
-│  :80    │     ┌────┼──│   frontend       │   │  │
-│  ┌──────┴──┐  │    │  │   nginx :80      │   │  │
-│  │ Browser │──┘    │  └────────┬─────────┘   │  │
-│  └─────────┘       │           │ proxy /api  │  │
-│                    │  ┌────────▼─────────┐   │  │
-│  ./videos ─────────┼──│   backend        │   │  │
-│  db-data  ─────────┼──│   fastapi :8000  │   │  │
-│  credentials ──────┼──│   + ffmpeg       │   │  │
-│                    │  └──────────────────┘   │  │
-│                    └─────────────────────────┘  │
-└─────────────────────────────────────────────────┘
-```
-
-**Comunicação:**
-- Usuário → Frontend (Nginx, porta 80)
-- Nginx → Backend via proxy reverso (`/api/*` → `backend:8000`)
-- Nginx → Backend SSE sem buffer (`/api/sse/*` → `backend:8000`)
-- Backend → Ollama via `host.docker.internal:11434`
-- Backend → edge-tts via HTTPS (internet)
-
-**Volumes persistentes:**
-- `youtube-automation-db` — banco SQLite
-- `youtube-automation-credentials` — tokens OAuth criptografados
-- `youtube-automation-output` — vídeos processados
-- `${VIDEOS_FOLDER_HOST}` — vídeos fonte (bind mount, somente leitura em prod)
-
----
-
-## Solução de Problemas
-
-### Ollama não acessível dentro do container
-
-**Sintoma:** `Connection refused` ou `Name resolution failed` para `host.docker.internal:11434`
-
-**Causa:** No Linux, `host.docker.internal` não existe por padrão (diferente de macOS/Windows).
-
-**Solução:** O `docker-compose.yml` já configura `extra_hosts: - "host.docker.internal:host-gateway"` para resolver isso. Verifique se o Ollama está iniciado:
+O script verifica backend, banco, Ollama, FFmpeg e pasta de vídeos. Como o
+FFmpeg está dentro do container, o resultado do script executado no host pode
+indicar que o FFmpeg não foi encontrado mesmo com o backend funcionando. Nesse
+caso, execute verificações dentro do container:
 
 ```bash
-# Verificar se Ollama está rodando
-curl http://localhost:11434/api/tags
-
-# Iniciar Ollama se necessário
-ollama serve
-```
-
----
-
-### Container do backend não inicia (health check falhando)
-
-**Verificar logs:**
-
-```bash
-docker compose logs backend
-```
-
-**Causas comuns:**
-1. `SECRET_KEY` não definida no `.env` — gere com `openssl rand -hex 32`
-2. Erro de permissão em `/app/data` — verifique permissões do volume
-3. Porta 8000 já em uso — mude `BACKEND_PORT` no `.env`
-
----
-
-### Frontend mostra erro 502 Bad Gateway
-
-**Causa:** O backend não está `healthy` ainda quando o Nginx tenta fazer o proxy.
-
-**Solução:** Aguarde o backend inicializar completamente (até 30s) e tente novamente. Para verificar o status:
-
-```bash
-docker compose ps
-# Aguarde o status "healthy" para o container backend
-```
-
----
-
-### Vídeos não aparecem na interface
-
-**Verificar:**
-1. `VIDEOS_FOLDER_HOST` no `.env` aponta para a pasta correta
-2. A pasta existe e tem arquivos `.mp4`, `.mov` ou `.avi`
-3. O volume está montado corretamente:
-
-```bash
-# Verifica se os vídeos estão acessíveis dentro do container
+docker compose exec backend ffmpeg -version
 docker compose exec backend ls -la /app/videos
 ```
 
----
+## Persistência e backup
 
-### Erro de permissão ao processar vídeos
+Volumes de produção:
 
-**Causa:** O container roda como usuário não-root (uid 1001). Se o diretório de output tiver permissões restritas, o processamento falha.
+| Volume | Conteúdo |
+|---|---|
+| `youtube-automation-db` | Banco SQLite |
+| `youtube-automation-credentials` | Credenciais/tokens OAuth |
+| `youtube-automation-output` | Vídeos processados |
 
-**Solução:**
+Listar volumes:
 
 ```bash
-# Ajusta permissões do volume de output
-docker volume inspect youtube-automation-output
-# Ou recria o volume
-docker compose down
-docker volume rm youtube-automation-output
-docker compose up -d
+docker volume ls | findstr youtube-automation
 ```
 
----
-
-### edge-tts falha ao gerar áudio
-
-**Causa:** `edge-tts` requer conexão com internet (usa a API da Microsoft).
-
-**Verificar:**
-1. Container tem acesso à internet: `docker compose exec backend curl -s https://example.com`
-2. Voz configurada existe: verifique `TTS_VOICE` no `.env`
-
----
-
-### Atualizar dependências Python
+No Linux/macOS/Git Bash, fazer backup:
 
 ```bash
-# Rebuild completo do backend sem cache
-docker compose build --no-cache backend
-docker compose up -d backend
-```
-
----
-
-### Backup dos dados
-
-Os dados importantes ficam em volumes Docker nomeados:
-
-```bash
-# Backup do banco de dados
+mkdir -p backups
 docker run --rm \
-  -v youtube-automation-db:/data \
-  -v $(pwd):/backup \
-  alpine tar czf /backup/backup-db-$(date +%Y%m%d).tar.gz /data
+  -v youtube-automation-db:/data:ro \
+  -v "$(pwd)/backups:/backup" \
+  alpine tar czf /backup/db-$(date +%Y%m%d-%H%M%S).tar.gz /data
 
-# Backup das credenciais OAuth
 docker run --rm \
-  -v youtube-automation-credentials:/data \
-  -v $(pwd):/backup \
-  alpine tar czf /backup/backup-credentials-$(date +%Y%m%d).tar.gz /data
+  -v youtube-automation-credentials:/data:ro \
+  -v "$(pwd)/backups:/backup" \
+  alpine tar czf /backup/credentials-$(date +%Y%m%d-%H%M%S).tar.gz /data
 ```
 
----
+No PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Force .\backups
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+docker run --rm -v youtube-automation-db:/data:ro -v "${PWD}\backups:/backup" `
+  alpine tar czf "/backup/db-$stamp.tar.gz" /data
+docker run --rm -v youtube-automation-credentials:/data:ro `
+  -v "${PWD}\backups:/backup" alpine tar czf "/backup/credentials-$stamp.tar.gz" /data
+```
+
+> **Atenção:** `docker compose down -v`, `make clean-volumes` e a remoção
+> manual dos volumes apagam dados. Faça backup antes.
+
+## Solução de problemas
+
+### `docker compose up` não inicia
+
+```bash
+docker info
+docker compose config
+docker compose ps
+docker compose logs backend
+```
+
+Confirme que o Docker Desktop está aberto, que o `.env` existe e que a porta
+8000 não está sendo usada.
+
+### Erro de `SECRET_KEY`
+
+Gere uma chave nova e substitua o valor no `.env`:
+
+```bash
+openssl rand -hex 32
+```
+
+Depois recrie o container:
+
+```bash
+docker compose up -d --build backend
+```
+
+### Porta 8000 ocupada
+
+No `.env`:
+
+```dotenv
+BACKEND_PORT=8001
+```
+
+Depois acesse `http://localhost:8001/health`.
+
+### Ollama não acessível
+
+```bash
+curl http://localhost:11434/api/tags
+docker compose exec backend wget -qO- http://host.docker.internal:11434/api/tags
+```
+
+Se o primeiro comando falhar, inicie o Ollama. Se o segundo falhar, confira
+firewall, URL e se o Docker está em execução.
+
+### Pasta de vídeos vazia ou inexistente
+
+Confira o valor de `VIDEOS_FOLDER_HOST` e teste o mount:
+
+```bash
+docker compose exec backend ls -la /app/videos
+```
+
+As extensões reconhecidas pelo health check são `.mp4`, `.mov`, `.avi`, `.mkv`
+e `.webm`.
+
+### Erro de permissão no Windows
+
+Use uma pasta compartilhada pelo Docker Desktop e autorize o acesso em
+**Settings > Resources > File Sharing**. Para um primeiro teste, mantenha:
+
+```dotenv
+VIDEOS_FOLDER_HOST=./videos
+```
+
+### Migration ou banco legado
+
+As migrations são executadas automaticamente no startup. O backend também
+reconhece volumes antigos que possuem tabelas sem uma versão Alembic e grava o
+baseline compatível. Não remova o volume do banco sem fazer backup.
+
+### O frontend não compila
+
+No estado atual do repositório, o frontend não contém `package.json` nem código
+Vue. Portanto, `docker compose up` sem especificar `backend` pode falhar ao
+tentar construir o serviço `frontend`. Use:
+
+```bash
+docker compose up -d --build backend
+```
+
+até que a implementação do frontend seja adicionada.
+
+## Estrutura do projeto
+
+```text
+youtube-automation/
+├── backend/
+│   ├── app/
+│   │   ├── api/              # Rotas e dependências FastAPI
+│   │   ├── core/             # Configurações e exceções
+│   │   ├── db/               # Engine e sessões SQLAlchemy
+│   │   ├── models/           # Modelos do banco
+│   │   └── schemas/          # Schemas Pydantic
+│   ├── alembic/              # Migrations
+│   ├── tests/                # Testes automatizados
+│   ├── Dockerfile
+│   └── requirements.txt
+├── frontend/                 # Configuração preparada; Vue em construção
+├── docs/                     # Especificações e plano de testes
+├── scripts/                  # Scripts auxiliares
+├── .env.example
+├── docker-compose.yml
+├── docker-compose.dev.yml
+└── Makefile
+```
+
+## Segurança
+
+- Não versione `.env`, tokens OAuth, arquivos JSON de credenciais ou backups.
+- Use uma `SECRET_KEY` longa e aleatória.
+- Restrinja `CORS_ORIGINS` em ambientes expostos.
+- Não exponha a porta do backend diretamente à internet sem autenticação e
+  proxy reverso.
+- Faça backup dos volumes em local seguro e com acesso restrito.
+- Troque credenciais imediatamente se elas forem expostas.
 
 ## Licença
 
-MIT — veja `LICENSE` para detalhes.
+Consulte o arquivo `LICENSE` quando ele estiver disponível no repositório.
