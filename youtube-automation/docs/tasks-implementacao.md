@@ -953,12 +953,12 @@ async def compose_video(input: VideoCompositionInput) -> VideoCompositionOutput:
 ```
 
 #### Critérios de conclusão
-- [ ] Vídeo final tem codec H.264 (vídeo) e AAC (áudio)
-- [ ] Vídeo final tem duração aproximada do áudio (tolerância 1s)
-- [ ] 16:9 saída em 1920x1080
-- [ ] 9:16 saída em 1080x1920
-- [ ] Arquivos temporários (list.txt, temp_video.mp4) removidos após sucesso
-- [ ] Executado em ProcessPoolExecutor
+- [x] Vídeo final tem codec H.264 (vídeo) e AAC (áudio)
+- [x] Vídeo final tem duração aproximada do áudio (tolerância 1s)
+- [x] 16:9 saída em 1920x1080
+- [x] 9:16 saída em 1080x1920
+- [x] Arquivos temporários (list.txt, temp_video.mp4) removidos após sucesso
+- [x] Executado em ProcessPoolExecutor
 
 ---
 
