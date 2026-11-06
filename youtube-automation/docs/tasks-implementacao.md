@@ -882,10 +882,10 @@ async def cut_clip(spec: ClipSpec, output_dir: str) -> str:
 ```
 
 #### Critérios de conclusão
-- [ ] Corte não ultrapassa o final do vídeo (`start + duration <= video.duration`)
-- [ ] Arquivos de clipe salvos em `output_dir` com nome `clip_{i:04d}_{video_name}.mp4`
-- [ ] FFmpegError lançado com o stderr do FFmpeg se o corte falhar
-- [ ] `cut_clip` executado em ProcessPoolExecutor (CPU-bound)
+- [x] Corte não ultrapassa o final do vídeo (`start + duration <= video.duration`)
+- [x] Arquivos de clipe salvos em `output_dir` com nome `clip_{i:04d}_{video_name}.mp4`
+- [x] FFmpegError lançado com o stderr do FFmpeg se o corte falhar
+- [x] `cut_clip` executado em ProcessPoolExecutor (CPU-bound)
 
 #### Pontos de atenção
 - Usar `-ss` antes do `-i` (seek antes do input) para velocidade — `ffmpeg -ss {start} -i input.mp4 -t {dur} -c copy output.mp4`
