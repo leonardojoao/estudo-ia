@@ -1219,10 +1219,10 @@ async def test_token(account: YouTubeAccount, settings: Settings) -> bool:
 ```
 
 #### Critérios de conclusão
-- [ ] URL de autorização inclui `access_type=offline` (para obter refresh_token)
-- [ ] Tokens armazenados como JSON criptografado com Fernet (TASK-027)
-- [ ] `refresh_token_if_expired` atualiza `credentials` e `updated_at` no banco
-- [ ] `test_token` retorna `False` (não levanta exceção) se token inválido
+- [x] URL de autorização inclui `access_type=offline` (para obter refresh_token)
+- [x] Tokens armazenados como JSON criptografado com Fernet (TASK-027)
+- [x] `refresh_token_if_expired` atualiza `credentials` e `updated_at` no banco
+- [x] `test_token` retorna `False` (não levanta exceção) se token inválido
 
 #### Pontos de atenção
 - O callback OAuth deve usar `http://localhost:8000/api/accounts/oauth/callback` como `redirect_uri`

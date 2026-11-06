@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     default_dimension: str = "16:9"
     tts_voice: str = "en-US-JennyNeural"
     oauth_credentials_path: str = "/app/credentials"
+    frontend_url: str = "http://localhost:5173"
+    oauth_redirect_uri: str = (
+        "http://localhost:8000/api/accounts/oauth/callback"
+    )
     secret_key: str
     cors_origins: str | list[str] = [
         "http://localhost:5173",
