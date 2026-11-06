@@ -96,6 +96,13 @@ class AudioGenerationError(AppError):
     error_code = "AUDIO_GENERATION_ERROR"
 
 
+class TokenDecryptionError(AppError):
+    """Falha ao descriptografar um token armazenado."""
+
+    status_code = 500
+    error_code = "TOKEN_DECRYPTION_ERROR"
+
+
 def _error_response(
     *,
     error: str,

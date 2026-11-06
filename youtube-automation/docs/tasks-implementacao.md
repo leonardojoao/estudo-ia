@@ -1186,9 +1186,9 @@ def decrypt(data: str, settings: Settings) -> str:
 ```
 
 #### Critérios de conclusão
-- [ ] `encrypt(decrypt(data))` == `data` (round-trip)
-- [ ] `SECRET_KEY` com menos de 32 bytes é derivado via PBKDF2 para gerar chave Fernet válida
-- [ ] `decrypt` lança erro descritivo se dados corrompidos (não `InvalidToken` genérico)
+- [x] `encrypt(decrypt(data))` == `data` (round-trip)
+- [x] `SECRET_KEY` com menos de 32 bytes é derivado via PBKDF2 para gerar chave Fernet válida
+- [x] `decrypt` lança erro descritivo se dados corrompidos (não `InvalidToken` genérico)
 
 ---
 
