@@ -1,6 +1,7 @@
 """Modelos de processamento e relação com contas YouTube."""
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
@@ -16,6 +17,10 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
+
+if TYPE_CHECKING:
+    from app.models.account import YouTubeAccount
+    from app.models.job_step import JobStep
 
 
 job_accounts = Table(

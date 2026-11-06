@@ -5,6 +5,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.core.config import get_settings
 
@@ -24,10 +25,10 @@ if not settings.database_path.startswith(":memory:"):
     database_path = Path(settings.database_path)
     database_path.parent.mkdir(parents=True, exist_ok=True)
 
-engine = create_engine(
-    database_url,
-    connect_args={"check_same_thread": False},
-)
+engine_options = {"connect_args": {"check_same_thread": False}}
+if settings.database_path == ":memory:":
+    engine_options["poolclass"] = StaticPool
+engine = create_engine(database_url, **engine_options)
 SessionLocal = sessionmaker(
     bind=engine,
     autocommit=False,

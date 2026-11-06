@@ -35,6 +35,13 @@ class NotFoundError(AppError):
     error_code = "NOT_FOUND"
 
 
+class UnauthorizedError(AppError):
+    """Credencial administrativa ausente ou inválida."""
+
+    status_code = 401
+    error_code = "UNAUTHORIZED"
+
+
 class ValidationError(AppError):
     """Dados recebidos não atendem às regras de negócio."""
 

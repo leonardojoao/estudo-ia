@@ -6,9 +6,9 @@ os.environ.setdefault("SECRET_KEY", "test-secret")
 os.environ.setdefault("ENVIRONMENT", "testing")
 os.environ.setdefault("DATABASE_PATH", ":memory:")
 
-from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient  # noqa: E402
 
-from main import app
+from main import app  # noqa: E402
 
 
 def test_health_returns_ok() -> None:

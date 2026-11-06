@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     tts_voice: str = "en-US-JennyNeural"
     oauth_credentials_path: str = "/app/credentials"
     secret_key: str
-    cors_origins: list[str] = [
+    cors_origins: str | list[str] = [
         "http://localhost:5173",
         "http://localhost",
     ]
@@ -39,9 +39,9 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator("cors_origins", mode="before")
+    @field_validator("cors_origins", mode="after")
     @classmethod
-    def parse_cors_origins(cls, value: Any) -> Any:
+    def parse_cors_origins(cls, value: Any) -> list[str]:
         """Aceita tanto lista JSON quanto origens separadas por vírgula."""
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
