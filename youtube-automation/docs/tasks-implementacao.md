@@ -915,11 +915,11 @@ def sequence_clips_anti_plagiarism(clips: list[ClipSpec]) -> list[SequencedClip]
 ```
 
 #### Critérios de conclusão
-- [ ] Para N vídeos com distribuição uniforme, nenhum par consecutivo é do mesmo vídeo
-- [ ] Para 1 vídeo, lança `AntiPlagiarismError` com mensagem orientando adicionar mais vídeos
-- [ ] Para 2 vídeos com N/2 clipes cada, alterna perfeitamente ABABAB...
-- [ ] Lista de entrada vazia retorna lista vazia (sem erro)
-- [ ] Validação final garante a propriedade anti-plágio: usar `raise AntiPlagiarismError(...)`, não `assert` (que pode ser desabilitado com `python -O`)
+- [x] Para N vídeos com distribuição uniforme, nenhum par consecutivo é do mesmo vídeo
+- [x] Para 1 vídeo, lança `AntiPlagiarismError` com mensagem orientando adicionar mais vídeos
+- [x] Para 2 vídeos com N/2 clipes cada, alterna perfeitamente ABABAB...
+- [x] Lista de entrada vazia retorna lista vazia (sem erro)
+- [x] Validação final garante a propriedade anti-plágio: usar `raise AntiPlagiarismError(...)`, não `assert` (que pode ser desabilitado com `python -O`)
 
 #### Pontos de atenção
 - `heapq` em Python é min-heap — usar valores negativos para simular max-heap
