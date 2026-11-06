@@ -46,6 +46,6 @@ EXPOSE 80
 
 # Health check via endpoint de status do Nginx
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD wget -qO- http://localhost/health-frontend || exit 1
+    CMD wget -qO- http://127.0.0.1/health-frontend || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
