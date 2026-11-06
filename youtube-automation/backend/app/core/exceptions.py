@@ -89,6 +89,13 @@ class AntiPlagiarismError(AppError):
     error_code = "ANTI_PLAGIARISM_ERROR"
 
 
+class AudioGenerationError(AppError):
+    """Falha ao gerar ou medir o áudio de narração."""
+
+    status_code = 502
+    error_code = "AUDIO_GENERATION_ERROR"
+
+
 def _error_response(
     *,
     error: str,
