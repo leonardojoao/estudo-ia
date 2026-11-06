@@ -45,6 +45,19 @@ onMounted(() => {
             />
           </label>
         </div>
+        <label class="block max-w-xl space-y-2">
+          <span class="text-sm font-bold text-slate-700">Chave administrativa</span>
+          <input
+            v-model="settingsStore.adminKey"
+            type="password"
+            autocomplete="off"
+            class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:bg-white"
+            placeholder="Usada somente nesta solicitação"
+          />
+          <span class="block text-xs text-slate-400">
+            A chave não é salva no navegador e é enviada apenas ao atualizar configurações.
+          </span>
+        </label>
         <div
           class="flex flex-col justify-between gap-4 border-t border-slate-100 pt-6 sm:flex-row sm:items-center"
         >

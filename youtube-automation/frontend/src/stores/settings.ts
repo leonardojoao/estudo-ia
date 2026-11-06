@@ -20,6 +20,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const saving = ref(false)
   const error = ref<string | null>(null)
   const message = ref<string | null>(null)
+  const adminKey = ref('')
   const values = ref<Record<string, SettingValue>>({})
   const form = ref<Record<string, string | number>>({})
 
@@ -61,9 +62,9 @@ export const useSettingsStore = defineStore('settings', () => {
     error.value = null
     message.value = null
     try {
-      await systemApi.updateSettings(form.value)
-      message.value =
-        'Configurações atualizadas. A API pode exigir X-Admin-Key para concluir a operação.'
+      await systemApi.updateSettings(form.value, adminKey.value)
+      adminKey.value = ''
+      message.value = 'Configurações atualizadas com sucesso.'
       await load()
     } catch (reason) {
       error.value =
@@ -73,5 +74,16 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  return { loading, saving, error, message, values, form, editableFields, load, save }
+  return {
+    loading,
+    saving,
+    error,
+    message,
+    adminKey,
+    values,
+    form,
+    editableFields,
+    load,
+    save,
+  }
 })

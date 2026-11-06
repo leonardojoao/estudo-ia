@@ -10,8 +10,10 @@ export const systemApi = {
     const response = await api.get<SettingsResponse>('/api/settings')
     return response.data
   },
-  async updateSettings(payload: SettingsUpdate): Promise<SettingsResponse> {
-    const response = await api.put<SettingsResponse>('/api/settings', payload)
+  async updateSettings(payload: SettingsUpdate, adminKey: string): Promise<SettingsResponse> {
+    const response = await api.put<SettingsResponse>('/api/settings', payload, {
+      headers: { 'X-Admin-Key': adminKey },
+    })
     return response.data
   },
 }
