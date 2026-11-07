@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "prompt",
+            "timeout": 30,
+            "prompt": "Você é o validador de padrão de commit deste projeto. Analise o comando de ferramenta em $TOOL_INPUT. Se o comando NÃO contém a string 'git commit', responda apenas com {\"hookSpecificOutput\":{\"permissionDecision\":\"allow\"}}. Se contém 'git commit', valide a mensagem segundo o padrão em .claude/rules/padrao-commit.md: formato <tipo>(<escopo>): <descrição curta>; tipos permitidos feat, fix, docs, estilo, refat, teste, tarefa, perf, ci, reverter; descrição com letra minúscula inicial, imperativo, sem ponto final, no máximo 72 caracteres na primeira linha, em português brasileiro. Se estiver válida, responda {\"hookSpecificOutput\":{\"permissionDecision\":\"allow\"}}. Se estiver inválida, responda {\"hookSpecificOutput\":{\"permissionDecision\":\"deny\"},\"systemMessage\":\"<regra violada + sugestão de mensagem corrigida>\"}. Responda somente JSON válido."
+          }
+        ]
+      }
+    ]
+  }
+}

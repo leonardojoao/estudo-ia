@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Validar Padrão de Commit",
+      "trigger": "PreToolUse",
+      "description": "Intercepta operações de git commit e valida se a mensagem segue o padrão de commit em português definido no steering padrao-commit.md",
+      "matcher": "execute_pwsh",
+      "action": {
+        "type": "agent",
+        "prompt": "IMPORTANTE: Se o comando que está prestes a ser executado contém \"git commit\", você DEVE validar a mensagem de commit ANTES de prosseguir.\n\nVerifique se a mensagem segue o padrão de commit do projeto:\n\nFORMATO: <tipo>(<escopo>): <descrição curta>\n\nTIPOS PERMITIDOS: feat, fix, docs, estilo, refat, teste, tarefa, perf, ci, reverter\n\nREGRAS:\n1. O tipo é obrigatório e deve ser um dos listados acima (em minúsculas)\n2. O escopo é opcional, mas recomendado — entre parênteses após o tipo\n3. A descrição curta é obrigatória, máximo 72 caracteres na primeira linha\n4. Comece a descrição com letra minúscula\n5. Sem ponto final na descrição\n6. Use o imperativo: \"adiciona\", \"corrige\", \"remove\" (não \"adicionado\", \"corrigindo\")\n7. A mensagem deve estar em português brasileiro\n\nSe a mensagem NÃO seguir o padrão:\n- Informe ao usuário qual regra foi violada\n- Sugira uma mensagem corrigida\n- Reescreva o comando com a mensagem correta antes de executar\n\nSe o comando não contiver \"git commit\", ignore esta validação e prossiga normalmente."
+      }
+    }
+  ]
+}
